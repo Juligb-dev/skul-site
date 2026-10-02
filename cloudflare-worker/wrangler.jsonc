@@ -1,0 +1,43 @@
+{
+  "name": "cloudflare-worker",
+  "compatibility_date": "2026-09-07",
+  "main": "worker.js",
+
+  // Variables que NO son secretas (van en texto plano acá a propósito).
+  //
+  // IMPORTANTE: todo lo que pongas acá se aplica al desplegar. Si una
+  // variable de texto plano vivía solo en el panel de Cloudflare, un
+  // `wrangler deploy` la BORRA (los secrets de tipo Secret sobreviven).
+  // Por eso la URL base de Correo Argentino va declarada acá y no en el
+  // panel. Las credenciales (CORREO_USER / CORREO_PASSWORD) y el token de
+  // Telegram SÍ van como Secret en el panel: nunca en este archivo.
+  // OJO: esto es la API de PRODUCCIÓN, no la de pruebas (apitest).
+  // Con apitest el cliente no se reconoce y no cotiza nada: hay que usar
+  // https://api.correoargentino.com.ar/micorreo/v1
+  // El Worker solo cotiza (/rates) y lista sucursales (/agencies):
+  // no genera envíos, así que no se cobra nada por usar esto.
+  "vars": {
+    "CORREO_BASE_URL": "https://api.correoargentino.com.ar/micorreo/v1",
+    "CORREO_CUSTOMER_ID": "0001937535",
+    "CORREO_ORIGIN_POSTAL_CODE": "6015",
+
+    // La API key de Firebase. NO es un secreto: va escrita en el
+    // JavaScript del sitio (firebase.js), o sea que es pública por
+    // diseño. La usa el Worker para preguntarle a Firebase "¿de verdad
+    // este token es del admin?" antes de firmar una subida de imagen.
+    "FIREBASE_API_KEY": "AIzaSyBUJ0V6_9ceMm2VPvDkOsqrFaN4BXtMlrs",
+
+    // API key de Cloudinary. Tampoco es secreta (Cloudinary la muestra en
+    // el panel y aparece en las URLs); la firma la calcula el Worker con
+    // CLOUDINARY_API_SECRET, que SÍ va como Secret.
+    "CLOUDINARY_CLOUD_NAME": "xxf6yf3p",
+    "CLOUDINARY_API_KEY": "516378363498844"
+  },
+
+  // Secrets (nunca acá, se cargan con `wrangler secret put <NOMBRE>`):
+  //   CORREO_USER, CORREO_PASSWORD   -> MiCorreo
+  //   FIREBASE_CLIENT_EMAIL,
+  //   FIREBASE_PRIVATE_KEY            -> cuenta de servicio
+  //   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+  //   CLOUDINARY_API_SECRET           -> firma de subidas de imagen
+}

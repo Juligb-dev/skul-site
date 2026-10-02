@@ -1,0 +1,17 @@
+node_modules
+dist
+.env
+.DS_Store
+old-key.json
+new-key.json
+# emuladores de firebase (tests de reglas)
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+
+# caché de deploy de firebase (se regenera solo en cada `firebase deploy`)
+.firebase
+# estado local de wrangler (cache de compilacion, tokens de sesion)
+.wrangler
+# respaldos manuales: son copias de archivos que ya versiona git
+backups/

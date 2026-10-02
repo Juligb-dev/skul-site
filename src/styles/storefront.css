@@ -1,0 +1,3014 @@
+/* ============================================================
+   SKUL — CAPA DE ESCAPARATE
+   ------------------------------------------------------------
+   Última capa del sitio: define el look de la tienda (Home,
+   cabecera, catálogo, footer y tarjetas de producto). Se importa
+   DESPUÉS de global.css, así que gana por orden de cascada sin
+   tener que tocar las capas viejas.
+
+   Dirección visual: la referencia de streetwear de Buenos Aires
+   (fondo #eaeaea, tinta #111, acento óxido #bf4d26, tipografía
+   Arimo/Helvetica, tarjetas blancas redondeadas sobre gris,
+   marquee continuo, hero editorial, footer claro con marca
+   gigante). Es solo lenguaje visual — no hay marca, textos ni
+   imágenes de terceros.
+
+   ---------------------------------------------------------
+   CÓMO SE IMPORTA Y EN QUÉ ORDEN ENTRA AL CASCADE
+   ---------------------------------------------------------
+   En src/main.jsx están los dos imports de estilos, y el orden
+   en que aparecen ES el orden en que se aplican:
+
+       import './styles/global.css';      // capa vieja, base
+       import './styles/storefront.css';  // esta capa, la que gana
+
+   El navegador arma una sola lista de reglas y, cuando dos reglas
+   compiten por el mismo elemento, gana la que aparece más abajo
+   (a igual especificidad). Por eso esta hoja pisa a global.css sin
+   necesitar selectores rarísimos: alcanza con estar importada
+   después. Si algún día esto deja de funcionar, el culpable casi
+   seguro es que alguien movió el import de lugar.
+
+   El orden de precedencia, de más fuerte a más débil, queda así:
+     1) los `!important` de esta hoja (la última sección del archivo,
+        los bloques "FIX") — ganan contra todo lo demás;
+     2) esta hoja, por especificidad y por venir después;
+     3) global.css, la base vieja;
+     4) el navegador (los estilos por defecto de los <button>, etc.).
+
+   ---------------------------------------------------------
+   DÓNDE ESTÁN LOS TOKENS Y POR QUÉ
+   ---------------------------------------------------------
+   Los tokens (las variables CSS con los valores de la marca) viven
+   en el `:root` de acá, arriba de todo. El `:root` es la etiqueta
+   <html> del documento, o sea el ancestro de TODOS los elementos:
+   cualquier variable declarada ahí se puede leer desde cualquier
+   lugar de la hoja, sin selectores repetidos.
+
+   Por qué en variables y no el color escrito 200 veces: cambiar el
+   acento del sitio entero es tocar UNA línea en vez de buscar cada
+   aparición con ctrl+F. Además las variables se pueden pisar por
+   contexto más adelante (por ejemplo el bloque @media de más abajo
+   que las achica en celular), y eso con un color fijo no se puede.
+
+   OJO con las tipografías: acá NO están. --font-body, --font-display
+   y --font-mono viven en el `:root` de global.css y las uso desde
+   acá. Si someday se limpió global.css, esta hoja se queda sin
+   tipografías y todo cae a la del sistema.
+
+   ============================================================ */
+
+/* ============================================================
+   TOKENS DE LA MARCA (variables CSS)
+   ------------------------------------------------------------
+   Los agrupé por lo que representan, no por lo que se parecen:
+
+   — COLORES: los que escribís, los de apoyo y los papeles de fondo.
+   — RADIOS: el redondeo, que es la identidad del sitio (todo
+     redondeado, casi nada recto).
+   — ESPACIADO y RITMO: el margen lateral de todo el sitio y la
+     separación entre tarjetas.
+   — CURVAS: cómo se animan las cosas.
+   ============================================================ */
+
+:root {
+  /* COLORES */
+  /* Tinta: texto principal. Casi negro pero no negro puro, así
+     en pantalla grande no cansa la vista. */
+  --ink: #111;
+  /* Tinta suave: texto secundario, descripciones largas. */
+  --ink-soft: #4b4b4b;
+  /* Apagado: metadatos, precios tachados, textos de ayuda. */
+  --muted: #6b6965;
+  /* Línea: los separadores, bordes de tarjeta y de campo. */
+  --line: #e2e2e0;
+  /* Fondo del sitio: el gris claro sobre el que flotan las
+     tarjetas blancas. */
+  --bg: #eaeaea;
+  /* Los tres "papeles": blanco puro (tarjetas, campos), un blanco
+     apenas warming (hover de botón) y un gris claro (hueco de foto
+     mientras carga). */
+  --paper-0: #fff;
+  --paper-100: #f5f5f4;
+  --paper-200: #ececea;
+  /* Óxido: el único acento de color de la marca. Lo usan los
+     precios en oferta, los botones de compra y el foco de teclado. */
+  --ember: #bf4d26;
+
+  /* RADIOS: cuatro escalones. Tarjeta > foto > botón > panel.
+     Lo mantengo explícito para que si cambia uno no se muevan
+     todos por una cascada de herencia. */
+  --radius-card: 18px;
+  --radius-media: 14px;
+  --radius-control: 10px;
+  --radius-panel: 12px;
+
+  /* ESPACIADO Y RITMO */
+  /* --gutter es el margen lateral de TODO el sitio: lo que separa
+     una sección de la pantalla. Si lo cambiás acá, se mueven
+     cabecera, grillas, footer y menús juntos. */
+  --gutter: 1.5rem;
+  /* Separación entre tarjetas de la grilla. */
+  --grid-gap: 1rem;
+  /* CURVAS DE ANIMACIÓN */
+  /* --ease-quart: curva de aceleración/desaceleración "quart"
+     (la más usada en motion). Arranca rápido, frena largo: se
+     siente directa en los overlays y en los elementos que entran. */
+  --ease-quart: cubic-bezier(.25, 1, .5, 1);
+}
+
+/* Los dos tokens de ritmo bajan solos en celular: a 375px de ancho
+   un margen de 1.5rem se come media pantalla, así que el mismo
+   `:root` se pisa acá para el breakpoint de teléfono. Ojo: en CSS
+   no existen media queries, esto se puede escribir en el medio del
+   archivo y sigue valiendo igual que al principio. */
+@media (max-width: 820px) {
+  :root { --gutter: 1rem; --grid-gap: .5rem; }
+}
+
+/* ============================================================
+   0. RESET DE CONTROLES — POR QUÉ SALÍAN BOTONES NEGROS
+   ------------------------------------------------------------
+   El sitio es de tema claro, pero no decía ninguna vez que fuera
+   "de tema claro". Cuando la computadora o el celular del visitante
+   está en modo oscuro, el navegador OSCURECE SOLO los controles de
+   formulario que no tienen color puesto (los <button> pelados, los
+   <input type=file>, los <select>...). Eso pintaba cuadritos negros
+   en lugares donde el CSS no llegaba: el pause de la cinta de
+   anuncios, los botones de la barra superior, los del menú, los del
+   checkout, y los campos del panel de admin.
+
+   Dos avisos entonces:
+
+   1) color-scheme: light le dice al navegador "esta página es
+      clara". Sin esto, también se oscurecen los <select> y el
+      scrollbar, y ni los textareas del admin se salvan.
+
+   2) El reset de abajo (con :where, que NO le suma especificidad)
+      saca el fondo y el borde que pone el navegador por su cuenta.
+      Como va con :where, cualquier regla con clase gana siempre:
+      los botones que sí están diseñados siguen igual.
+
+   OJO: nada de esto pisa los fondos oscuros que SON del diseño
+   (el hero, el menú sobre foto, los botones de compra en óxido).
+   Solo se va el pintado automático del navegador.
+   ============================================================ */
+
+/* `color-scheme` va en un `:root` aparte (y no mezclado con los
+   tokens de arriba) para que se lea como lo que es: una decisión
+   sobre CÓMO se ve la página, no un valor de diseño. */
+:root {
+  color-scheme: light;
+}
+
+/* El reset de controles, en `:where()`.
+   `:where()` es una función que agrupa selectores pero NO suma
+   especificidad (el "peso" que decide qué regla gana). Por eso
+   estas reglas pesan cero: cualquier clase del sitio las pisa sin
+   necesidad de `!important`. Es la forma "correcta" de resetear
+   sin ensuciar el resto de la cascada. */
+:where(button, input, select, textarea) {
+  font-family: inherit;   /* los controles no heredan la tipografía */
+  font-size: inherit;
+  color: inherit;
+  background-color: transparent;  /* saca el gris del navegador */
+  border: 0;                      /* saca el borde por defecto */
+  border-radius: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* En un campo de texto el cursor debe ser el de texto (la I-beam),
+   no la flechita que corresponde a un botón. */
+:where(input, select, textarea) { cursor: auto; }
+
+/* ADMIN: campos de carga de archivos
+   El <input type=file> no se puede estilizar en WebKit: se ve el
+   botón nativo. Le damos un marco propio para que no quede un
+   cuadrito negro suelto. Los `!important` de acá son necesarios
+   porque global.css ya pone estilos más específicos sobre los
+   inputs del admin y esta capa, sin ellos, no llegaría a ganar. */
+.admin-panel input[type="file"] {
+  border: 1px dashed var(--line) !important;
+  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  width: 100%;
+  font-size: 12.5px !important;
+  background: var(--paper-0) !important;
+  color: var(--ink) !important;
+}
+/* `::file-selector-button` es el botón nativo que el navegador
+   mete adentro del input de archivo. Es lo único que se puede
+   estilizar de ese campo, así que lo marco como botón de la marca. */
+.admin-panel input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  border: 1px solid var(--ink) !important;
+  border-radius: 8px !important;
+  padding: 6px 12px !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* TICKER: botón de pause
+   El botón de pause de la cinta de anuncios no tenía NADA de estilo:
+   era el cuadrito negro. Hereda el color de la cinta ("inherit"). */
+.rotten-ticker-pause {
+  /* sin esto, el botón se estira y empuja el texto del ticker */
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: .6;
+  padding: 0 8px;
+  font: 700 10px var(--font-mono);
+  line-height: 1;
+  cursor: pointer;
+}
+.rotten-ticker-pause:hover { opacity: 1; }
+
+/* ============================================================
+   1. CABECERA FLOTANTE
+   ------------------------------------------------------------
+   La barra de arriba del sitio. Es una sola pieza de vidrio
+   oscuro (la "barra") que agrupa tres cosas apiladas: la cinta
+   de anuncios, la navegación y la fila de categorías.
+
+   En el home va DESBLOQUEADA (position: absolute) y en blanco
+   sobre la foto del hero. En el resto de las páginas se PEGA al
+   borde de arriba (position: sticky) y se pone clara.
+
+   Cómo leer los selectores de esta sección: casi todo lo que
+   importa está escrito como `.skul-root:not(.page-home) ...`,
+   o sea "todo menos el home". Es el atajo que uso para no
+   duplicar la barra: escribo la versión de una vez y pego la
+   variante de la otra página con ese "todo menos". Si alguna vez
+   tocás estas reglas, tocá el par de las dos.
+   ============================================================ */
+
+.rotten-header {
+  /* absolute + inset superior a 0 = pegado arriba, sin arrastrar
+     el contenido de abajo (sticky sí lo mueve). */
+  position: absolute;
+  inset: 0 0 auto;
+  /* Alto de capa: la barra tiene que quedar por encima del menú,
+     del velo del hero y de los overlays de página. */
+  z-index: 300;
+  padding: 8px 8px 0;
+  color: #fff;
+  font-family: var(--font-body);
+}
+
+/* Velo superior para que el texto se lea sobre la foto del hero.
+   Es un degradado negro que se desvanece hacia abajo, hecho con un
+   pseudo-elemento (::before) en vez de un div real: no estorba en
+   el HTML ni en el flex de los hijos. */
+.rotten-header::before {
+  content: "";
+  position: absolute;
+  /* el -8px lateral tapa el padding de la cabecera, si no el
+     degradado se corta antes de llegar al borde de la pantalla */
+  inset: 0 -8px auto;
+  height: 26vh;
+  z-index: -1;                 /* queda detrás del contenido */
+  pointer-events: none;        /* que no frene los clicks */
+  background: linear-gradient(180deg, rgba(0, 0, 0, .55), rgba(0, 0, 0, .12) 55%, transparent);
+}
+
+/* En el home la cabecera no lleva fondo propio: el velo de arriba
+   ya hace de degradado. */
+.page-home .rotten-header { background: none; }
+
+/* En el resto de las páginas la cabecera se clava al Scrollear:
+   `sticky` la deja en su lugar normal hasta que llega arriba y
+   después queda pegada, en vez de salirse de la pantalla. */
+.skul-root:not(.page-home) .rotten-header {
+  position: sticky;
+  top: 0;
+  padding: 8px;
+  color: var(--ink);
+}
+/* Y en esas páginas no hay foto debajo, así que el velo sobra. */
+.skul-root:not(.page-home) .rotten-header::before { display: none; }
+
+/* Panel redondeado que agrupa anuncio + nav + categorías */
+.rotten-bar {
+  border-radius: var(--radius-panel);
+  /* sin esto, el fondo redondeado se ve pero el contenido de los
+     hijos se escapa de las esquinas */
+  overflow: hidden;
+  background: rgba(17, 17, 17, .34);   /* negro al 34%: se ve la foto */
+  border: 1px solid rgba(255, 255, 255, .16);
+  /* backdrop-filter con blur es el "vidrio esmerilado": en vez de
+     tapar el fondo con un color, lo difumina y lo desatura un poco
+     (saturate >1 lo intensifica). El -webkit- es para Safari. */
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* Variante clara de la barra, para catálogo / ficha / outlet. */
+.skul-root:not(.page-home) .rotten-bar {
+  background: rgba(255, 255, 255, .74);
+  border-color: rgba(17, 17, 17, .08);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
+}
+
+/* --- cinta de anuncios --- */
+.rotten-announcement {
+  height: 30px;              /* alto fijo: el texto queda centrado */
+  display: flex;
+  align-items: center;
+  /* sin esto los textos que entran por la derecha se verían
+     apareciendo de golpe mientras la cinta se mueve */
+  overflow: hidden;
+  border-bottom: 1px solid rgba(255, 255, 255, .16);
+}
+.skul-root:not(.page-home) .rotten-announcement { border-color: rgba(17, 17, 17, .10); }
+
+/* LA CINTA QUE CORRE (el "ticker")
+   Cómo funciona el loop: el componente de React renderiza el texto
+   DOS veces seguidas (dos copias idénticas) y la animación mueve
+   el bloque de izquierda a derecha hasta -50%, o sea el ancho de
+   UNA copia. En ese punto la segunda copia queda exactamente
+   donde estaba la primera, y como las dos son iguales el ojo no
+   ve el salto. Después se repite. Es el truco clásico del marquee:
+   dos copias del contenido + translateX(-50%). */
+.rotten-ticker {
+  display: flex;
+  width: max-content;        /* que ocupe lo que ocupan sus hijos */
+  /* will-change avisa al navegador "esto se va a mover mucho",
+     así que lo sube a su propia capa y no repinta todo */
+  will-change: transform;
+  animation: rottenTicker 90s linear infinite;  /* 90s: bien lento */
+}
+.rotten-ticker span {
+  padding-right: 64px;       /* el hueco entre cada anuncio y el siguiente */
+  font-size: 10px;
+  letter-spacing: .16em;     /* el tracking exagerado de la marca */
+  text-transform: uppercase;
+  white-space: nowrap;       /* que nunca parta el texto en dos líneas */
+}
+/* Solo el estado final: el "from" implícito es el transform actual. */
+@keyframes rottenTicker { to { transform: translateX(-50%); } }
+
+/* --- barra de navegación --- */
+.rotten-nav {
+  height: 60px;
+  padding: 0 var(--gutter);
+  /* 1fr auto 1fr = izquierda elástica, centro con el logo, derecha
+     elástica del mismo ancho. Sirve para que el logo quede SIEMPRE
+     en el medio de la pantalla, no en el medio del contenido. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.rotten-nav button { border: 0; background: none; color: inherit; cursor: pointer; }
+.rotten-nav-left, .rotten-nav-right { display: flex; gap: 18px; align-items: center; }
+.rotten-nav-right { justify-content: flex-end; }
+.rotten-shop-toggle {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  padding: 4px 0;
+}
+.rotten-logo {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  /* tracking negativo fuerte: junta las letras para que el logo
+     se lea como una palabra compacta, no como letras sueltas */
+  letter-spacing: -.09em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.rotten-cart { display: flex; gap: 5px; align-items: center; font-size: 11px; }
+/* el número de productos del carrito va en mono para que no baile
+   de ancho cuando cambia de 9 a 10 */
+.rotten-cart span { font-family: var(--font-mono); }
+
+/* --- fila de categorías --- */
+/* Riel horizontal: con overflow-x el navegador ya deja arrastrar
+   con el dedo o con el trackpad, sin una sola línea de JS. */
+.rotten-cat-strip {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 0 var(--gutter) 12px;
+  scrollbar-width: none;   /* esconde la barra en Firefox */
+}
+.rotten-cat-strip::-webkit-scrollbar { display: none; }  /* y en Chrome/Safari */
+.rotten-cat-strip button {
+  /* sin esto los botones se estiran para llenar el alto del riel */
+  flex: 0 0 auto;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .72);
+  white-space: nowrap;
+  transition: color .2s ease;
+}
+.rotten-cat-strip button:hover,
+.rotten-cat-strip button.is-active {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 4px;  /* despega el subrayado de la letra */
+}
+/* fuera del home la fila va en tinta, no en blanco */
+.skul-root:not(.page-home) .rotten-cat-strip button { color: var(--muted); }
+.skul-root:not(.page-home) .rotten-cat-strip button:hover,
+.skul-root:not(.page-home) .rotten-cat-strip button.is-active { color: var(--ink); }
+
+/* --- panel de menú (SHOP) --- */
+/* PANEL LATERAL OSCURO (versión vieja, la que quedó pisada más
+   abajo por la sección 8 y la 12).
+   Vive oculta con opacity + visibility en vez de display:none para
+   que pueda tener transición: visibility sigue siendo animable y
+   además saca el elemento de la navegación con el teclado. */
+.rotten-menu {
+  position: fixed;
+  inset: 0;
+  z-index: -1;                /* cerrado: detrás de todo */
+  visibility: hidden;
+  opacity: 0;
+  background: rgba(0, 0, 0, .52);
+  transition: opacity .25s ease, visibility .25s ease;
+}
+.rotten-menu.is-open { opacity: 1; visibility: visible; z-index: 400; }
+/* El panel entra desde la izquierda: empieza desplazado su propio
+   ancho en X (translateX(-100%)) y el estado abierto lo devuelve. */
+.rotten-menu-inner {
+  width: min(370px, 88vw);
+  height: 100%;
+  padding: 112px 28px 30px;   /* el padding de arriba deja libre la barra */
+  overflow: auto;
+  background: #111;
+  transform: translateX(-100%);
+  transition: transform .35s var(--ease-quart);
+}
+.rotten-menu.is-open .rotten-menu-inner { transform: none; }
+.rotten-menu-inner button {
+  display: block;
+  width: 100%;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid #333;
+  background: none;
+  color: #fff;
+  text-align: left;
+  font-size: 15px;
+  letter-spacing: .08em;
+}
+/* el hover "empuja" el texto: margen animado en vez de translate,
+   así no choca con los otros efectos */
+.rotten-menu-inner button:hover { padding-left: 6px; transition: padding .2s ease; }
+
+/* ============================================================
+   2. HOME
+   ------------------------------------------------------------
+   La página de inicio, de arriba abajo: hero a pantalla
+   completa, cinta de productos, "shop the look", categorías y
+   el bloque de No-Restock. Todas las secciones usan el mismo
+   aire: padding vertical con clamp() (un valor que crece con el
+   ancho de pantalla) y --gutter en los bordes.
+   ============================================================ */
+
+.rotten-home { background: var(--bg); color: var(--ink); }
+
+/* --- hero --- */
+/* min-height con svh: "svh" es la altura de la pantalla ignorando
+   las barras del celular (la más chica de las tres unidades svh/
+   lvh/dvh), así la foto nunca queda con un botón de browser
+   pegado abajo. */
+.rotten-hero {
+  position: relative;
+  min-height: 100svh;
+  overflow: hidden;
+  color: #fff;
+  background: #111;
+}
+.rotten-hero > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* cover = la foto llena el marco y se recorta; contain = entra
+     entera y quedan bandas vacías. El hero usa cover. */
+  object-fit: cover;
+  /* Sin esto el recorte queda centrado (50% 50%). Subiendo el punto de
+     foco se prioriza la parte de arriba de la foto en vez del medio.
+     Probá el % y ajustalo a ojo con tu foto real. */
+  object-position: center 25%;
+  animation: rottenHero 1.15s var(--ease-quart) both;
+}
+/* Relleno borroso: la misma foto ampliada detrás. Solo se usa en el
+   celular (ver abajo), así que en escritorio ni se pinta. La foto de
+   verdad viene después en el DOM, así que queda arriba del relleno y
+   abajo del shade. */
+.rotten-hero > .rotten-hero-fill {
+  display: none;   /* se activa recién en el media query de celular */
+  object-fit: cover;
+  object-position: center 30%;
+  /* blur + bajar el brillo = el relleno se ve como una textura, no
+     como una foto; el scale evita que el blur muestre los bordes */
+  filter: blur(26px) saturate(.9) brightness(.5);
+  transform: scale(1.18);
+  animation: none;
+}
+
+/* La foto de campaña es apaisada y el celular es alto y angosto: con
+   "cover" el recorte deja ver una franja mínima de la foto (muy
+   distinta a como se ve en escritorio). En el celular la mostramos
+   ENTERA (contain) sobre el relleno borroso, que cubre las franjas
+   que sobran arriba y abajo. */
+@media (max-width: 900px) {
+  /* OJO con el selector: tiene que tener la misma especificidad que
+     ".rotten-hero > img" (que está en global.css y pone cover). Si
+     acá ponemos solo ".rotten-hero-photo", pierde contra aquel y la
+     foto sigue recortada en el celular aunque parezca que el cambio
+     está. Por eso va con el ">". */
+  .rotten-hero > .rotten-hero-photo { object-fit: contain; object-position: center; }
+  /* Si el dueño subió una portada vertical para el celular, esa sí llena
+     toda la pantalla (cover): como tiene la forma del teléfono, no deja
+     franjas y casi no recorta. */
+  .rotten-hero > .rotten-hero-photo.is-crop { object-fit: cover; object-position: center; }
+  .rotten-hero > .rotten-hero-fill { display: block; }
+}
+/* El hero entra con un zoom suave y un fade. El `both` del atajo de
+   animación es lo que hace que valgan los dos estados: con él, el
+   estado "from" se aplica antes de arrancar y el "to" queda fijo
+   al terminar (si no, la foto daría un salto al final). */
+@keyframes rottenHero {
+  from { opacity: 0; transform: scale(1.05); }
+  to { opacity: 1; transform: none; }
+}
+/* El degradado sobre la foto. Sin esto el texto blanco del hero queda
+   ilegible encima de una foto clara. Va en dos capas: una horizontal
+   que oscurece el lado izquierdo (donde se apila el texto en
+   escritorio) y una vertical que atenúa arriba y abajo. */
+.rotten-hero-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, .62), rgba(0, 0, 0, .22) 52%, rgba(0, 0, 0, 0) 78%),
+    linear-gradient(180deg, rgba(0, 0, 0, .40), transparent 30%, rgba(0, 0, 0, .55));
+}
+/* El contenido del hero va absoluto sobre la foto y centrado con
+   flex. El padding de arriba (118px) despeja la cabecera flotante
+   para que el logo no caiga encima del texto. */
+.rotten-hero-content {
+  position: absolute;
+  z-index: 1;          /* arriba del degradado */
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 118px var(--gutter) 56px;
+}
+/* El "eyebrow" es la línea chiquita de arriba del título (el
+   antetítulo). Va en mono como detalle de etiqueta. */
+.rotten-hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  opacity: .85;
+  margin-bottom: 16px;
+  animation: rottenHeroIn .8s .05s var(--ease-quart) both;
+}
+.rotten-hero-content h1 {
+  margin: 0 0 30px;
+  /* clamp() = valor mínimo, valor que sigue al ancho de pantalla,
+     valor máximo. Así el título es enorme en desktop y se achota
+     solo en el celular sin ningún media query. */
+  font-size: clamp(42px, 7.4vw, 104px);
+  font-weight: 500;
+  letter-spacing: -.045em;
+  line-height: .92;      /* apretado: da el aire de póster */
+  text-transform: uppercase;
+  max-width: 16ch;       /* corta el título a unas 16 líneas de ancho */
+  animation: rottenHeroIn .9s .12s var(--ease-quart) both;
+}
+.rotten-hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: min(100%, 470px);
+  /* cada elemento entra con un delay distinto (0.05 / 0.12 / 0.22)
+     y por eso parece escalonado y no todo junto */
+  animation: rottenHeroIn .9s .22s var(--ease-quart) both;
+}
+@keyframes rottenHeroIn {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: none; }
+}
+.rotten-hero-actions button {
+  flex: 1 1 180px;       /* base de 180px: se reparten en una fila */
+  min-height: 46px;      /* alto mínimo = área táctil cómoda */
+  padding: 0 26px;
+  border-radius: var(--radius-control);
+  border: 1px solid rgba(255, 255, 255, .38);
+  background: rgba(255, 255, 255, .16);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  /* vidrio sobre la foto, mismo efecto que la barra */
+  backdrop-filter: blur(18px) saturate(1.5);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  transition: background .25s ease, color .25s ease, border-color .25s ease;
+}
+/* El primer botón es el principal: blanco sólido. */
+.rotten-hero-actions button:first-child {
+  background: #fff;
+  color: var(--ink);
+  border-color: #fff;
+}
+.rotten-hero-actions button:first-child:hover { background: rgba(255, 255, 255, .86); }
+/* El secundario se invierte al pasar el mouse: pasa a blanco. */
+.rotten-hero-actions button:hover { background: #fff; color: var(--ink); border-color: #fff; }
+
+/* En escritorio el texto del hero se alinea a la izquierda y pegado
+   a la izquierda de la pantalla (arriba lo puse centrado, que es lo
+   que se ve bien en el celular). */
+@media (min-width: 901px) {
+  .rotten-hero-content { align-items: flex-start; text-align: left; }
+  .rotten-hero-actions { justify-content: flex-start; }
+}
+
+/* --- franjas de sección: el aire entre bloques del home ---
+   El padding vertical con clamp() hace que la separación crezca con
+   la pantalla sin tener que escribir un media query por sección. */
+.rotten-products, .rotten-lookbook { padding: clamp(40px, 5vw, 74px) 0; }
+.rotten-products { border-bottom: 1px solid var(--line); }
+
+/* Cabecera de sección: título a la izquierda, "ver todo" a la derecha. */
+.rotten-products-head {
+  display: flex;
+  align-items: flex-end;   /* el link se alinea con la base del título */
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 var(--gutter) 20px;
+}
+.rotten-products-head h2, .rotten-lookbook h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 40px);
+  font-weight: 500;
+  letter-spacing: -.04em;
+  text-transform: uppercase;
+}
+.rotten-products-head button {
+  border: 0;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  /* currentColor: el subrayado toma el color del texto, así el
+     mismo botón funciona en claro y en oscuro sin cambiar nada */
+  border-bottom: 1px solid currentColor;
+}
+.rotten-lookbook h2 { padding: 0 var(--gutter) 20px; }
+
+/* ============================================================
+   TARJETAS DE PRODUCTO (grilla)
+   ------------------------------------------------------------
+   La misma grilla sirve para el home, el catálogo y el outlet,
+   así que las reglas nacen con los tres selectores juntos y lo
+   que cambia (cantidad de columnas, padding) se pisa después.
+
+   OJO con dos cosas de este bloque, son las que más rompen:
+
+   1) El `!important` de las columnas. global.css pone la cantidad
+      de columnas con sus propios breakpoints y, más específico,
+      gana esta capa. Con el `!important` me aseguro el resultado
+      sin tener que subir especificidad con selectores inventados.
+
+   2) El `:not(.rf-product-card-dark)` repetido en cada regla. Las
+      tarjetas oscuras (No-Restock) tienen su propio diseño y si
+      las agarro acá, las pinto de blanco. Repetir el `:not()` es
+      feo pero es lo que las deja afuera.
+   ============================================================ */
+
+.product-grid-page,
+.rotten-products .product-grid-page,
+.rf-catalog-page .product-grid-page {
+  display: grid;
+  /* repeat(4, ...) = cuatro columnas iguales; minmax(0, 1fr) en vez
+     de 1fr solo para que los nombres largos puedan encogerse y no
+     revienten la columna (1fr solo no baja del ancho mínimo del
+     contenido). */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: var(--grid-gap);
+  padding: 0 var(--gutter);
+  background: transparent;  /* saca la caja blanca de la capa vieja */
+  border: 0;
+}
+/* el catálogo lleva padding propio arriba y bastante abajo */
+.rf-catalog-page .product-grid-page { padding: 26px var(--gutter) 90px; }
+
+/* `.reveal` es el envoltorio de la animación de entrada que mete el
+   componente. Lo paso a flex para que la tarjeta ocupe todo el ancho
+   disponible de la celda. */
+.product-grid-page .reveal {
+  background: transparent;
+  display: flex;
+}
+.product-grid-page .rf-product-card { flex: 1 1 auto; }
+
+/* LA TARJETA: blanca, redondeada, con padding finísimo y sombra
+   recién al pasar el mouse (en reposo la sombra no existe: son
+   25 tarjetas en pantalla, con sombra siempre el gris se ensucia). */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) {
+  position: relative;    /* ancla de las pastillas absolutas de arriba */
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 4px;
+  background: var(--paper-0);
+  border: 0;
+  border-radius: var(--radius-card);
+  overflow: hidden;      /* la foto se recorta dentro del radio */
+  transition: box-shadow .3s var(--ease-quart);
+}
+.product-grid-page .rf-product-card:not(.rf-product-card-dark):hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .09);
+}
+
+/* contiene la zona de foto + las pastillas + el quick-add */
+.product-grid-page .rf-product-top { position: relative; }
+
+/* EL MARCO DE LA FOTO
+   `aspect-ratio: 4 / 5` reserva la proporción sin necesidad de
+   saber el ancho: el alto sale del ancho. Uso 4:5 (vertical) y no
+   1:1 porque es la proporción con la que se sacan las fotos de
+   prenda: llena la columna, se lee la silueta entera y deja sitio
+   para el nombre abajo. Con height fijo la grilla bailaría con
+   nombres de dos líneas. */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-product-media {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 5;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--paper-200);  /* gris claro mientras carga la foto */
+  border-radius: var(--radius-media);
+  cursor: pointer;
+}
+/* la tela animada que se usa de relleno también tiene que ocupar
+   el alto del marco */
+.product-grid-page .rf-product-media .fabric { height: 100% !important; }
+
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-product-image {
+  width: 100%;
+  height: 100%;
+  /* "contain" y no "cover": las prendas entran con la foto del recorte
+     (PNG con fondo transparente) y con "cover" el marco 4/5 las cortaba
+     de arriba/abajo o de los costados. Así se ve la prenda entera. */
+  object-fit: contain;
+  transition: opacity .4s ease, transform .7s var(--ease-quart);
+}
+/* HOVER: se cruzan dos fotos. La principal se desvanece y hace un
+   zoom mínimo, y la alternativa (por atrás, en la misma caja) entra.
+   Con dos <img> superpuestas el cambio es un simple fade de opacity. */
+.product-grid-page .rf-product-image-alt { opacity: 0; position: absolute; inset: 0; }
+.product-grid-page .rf-product-card:hover .rf-product-image-main { opacity: 0; transform: scale(1.03); }
+.product-grid-page .rf-product-card:hover .rf-product-image-alt { opacity: 1; }
+/* la flechita "ver producto" no va en la tarjeta: el diseño nuevo
+   no la usa, la tarjeta entera es el link */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-product-arrow { display: none; }
+
+/* etiqueta arriba a la derecha, tipo pastilla blanca */
+.product-grid-page .rf-product-badges {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  left: auto;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.product-grid-page .rf-product-badges span,
+.product-grid-page .rf-product-badges small {
+  padding: 6px 9px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .95);
+  color: var(--ink);
+  font: 11px/1 var(--font-body);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* BLOQUE DE TEXTO: nombre y precio. */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-product-info {
+  padding: 11px 8px 12px;
+  border-top: 0;
+}
+/* min-height en el nombre: reserva dos líneas siempre, así todas
+   las tarjetas de la fila arrancan el precio en el mismo y. */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-product-name {
+  display: block;
+  min-height: 30px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+/* FILA DE PRECIO: precio, tachado y transferencia conviven. */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-price-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;   /* alinea los precios por su base, no su centro */
+  gap: 4px 8px;
+  padding-top: 5px;
+}
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-price { font-size: 13px; font-weight: 600; }
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-old-price { font-size: 11px; }
+/* la transferencia (cuotas) es texto de apoyo: chico y apagado */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-transfer { font-size: 10px; color: var(--muted); }
+/* EL PRECIO EN OFERTA va en óxido, el color de la marca: es el único
+   color que hay que ver de reojo en la grilla. El tachado lo pone el
+   componente; acá solo el color. */
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-sale-price { color: var(--ember); }
+.product-grid-page .rf-product-card:not(.rf-product-card-dark) .rf-transfer { color: var(--ember); }
+
+/* ============================================================
+   QUICK-ADD (los talles directo en la tarjeta)
+   ------------------------------------------------------------
+   La fila de talles que permite agregar al carrito sin abrir la
+   ficha. En celular va siempre visible (fila simple bajo la
+   foto); en escritorio se vuelve una pastilla de vidrio que
+   aparece flotando sobre la foto al pasar el mouse.
+
+   El selector base es la versión móvil y el media query de abajo
+   la versión escritorio: por eso el breakpoint va con
+   min-width en vez de max-width.
+   ============================================================ */
+
+.product-grid-page .rf-quick-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 10px 8px 0;
+}
+.product-grid-page .rf-quick-sizes button {
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper-100);
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+/* el hover invierte a tinta: el mismo gesto que "elegido" */
+.product-grid-page .rf-quick-sizes button:hover {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+/* el ícono de la campana no se usa en este diseño */
+.product-grid-page .rf-quick-sizes button svg { display: none; }
+/* "sin talles" cuando la prenda viene en una sola talla */
+.product-grid-page .rf-no-size { font-size: 9.5px; letter-spacing: .06em; color: var(--muted); }
+
+/* Escritorio (desde 641px): la fila se despega de la tarjeta y se
+   convierte en overlay sobre la foto. */
+@media (min-width: 641px) {
+  .product-grid-page .rf-quick-sizes {
+    /* bottom: 16px + left/right en 0 = pegado abajo y centrado
+       con el margin auto, sin conocer el ancho */
+    position: absolute;
+    inset: auto 0 16px;
+    margin: 0 auto;
+    width: max-content;
+    max-width: calc(100% - 24px);
+    padding: 5px;
+    border-radius: var(--radius-control);
+    background: rgba(255, 255, 255, .72);
+    border: 1px solid rgba(0, 0, 0, .08);
+    backdrop-filter: blur(24px) saturate(1.6);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    /* el inset sombrea el borde de arriba (luz), el segundo da la
+       sombra que la separa de la foto */
+    box-shadow: inset 0 1px rgba(255, 255, 255, .65), 0 10px 30px rgba(0, 0, 0, .08);
+    /* oculta pero presente en el DOM: aparece con un fade corto al
+       pasar el mouse */
+    opacity: 0;
+    transform: translateY(8px);
+    /* no le da hover a los talles mientras está invisible */
+    pointer-events: none;
+    transition: opacity .3s var(--ease-quart), transform .3s var(--ease-quart);
+  }
+  .product-grid-page .rf-product-card:hover .rf-quick-sizes {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .product-grid-page .rf-quick-sizes button {
+    height: 28px;
+    background: rgba(255, 255, 255, .62);
+    border-color: rgba(0, 0, 0, .10);
+  }
+}
+
+/* EXCEPCIÓN: tarjetas oscuras (No-Restock) conservan su identidad.
+   Acá hay que deshacer TODO lo del overlay de arriba (posición,
+   fondo, vidrio, opacidad), porque sobre una tarjeta oscura la
+   pastilla clara flotante no se leía y el diseño del drop pide los
+   talles siempre a la vista. */
+.product-grid-page .rf-product-card-dark .rf-quick-sizes {
+  position: static;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: 12px 0 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  color: #fff;
+}
+.product-grid-page .rf-product-card-dark .rf-quick-sizes button {
+  border-color: #4a3f35;   /* borde apenas más claro que el negro */
+  background: transparent;
+  color: #fff;
+}
+.product-grid-page .rf-product-card-dark .rf-quick-sizes button:hover { background: #fff; color: #111; }
+
+/* --- shop the look ---
+   Tres fotos, con la primera al doble de ancho: la editorial manda
+   y las dos de al lado la acompañan. El alto sale del min-height
+   (la parte 13 de abajo lo reescribe con grid-auto-rows). */
+.rotten-lookbook-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--grid-gap);
+  padding: 0 var(--gutter);
+  background: transparent;
+}
+.rotten-lookbook-grid img {
+  width: 100%;
+  height: 100%;
+  min-height: 340px;
+  object-fit: cover;
+  display: block;   /* quita el hueco de abajo que deja el inline */
+  border-radius: var(--radius-media);
+}
+
+/* --- categorías ---
+   Bloque con fondo un tono más oscuro (--paper-200) para que se
+   separe del resto del home sin necesitar una línea de borde. */
+.rotten-categories { padding: clamp(48px, 6vw, 86px) var(--gutter); background: var(--paper-200); }
+.rotten-section-title { margin-bottom: 24px; }
+/* el "eyebrow" del título: la línea chica de arriba */
+.rotten-section-title span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rotten-section-title h2 {
+  max-width: 700px;   /* el título no se estira a todo el ancho */
+  margin: 8px 0 0;
+  font-size: clamp(32px, 5vw, 62px);
+  font-weight: 500;
+  letter-spacing: -.05em;
+  line-height: .92;
+  text-transform: uppercase;
+}
+.rotten-category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--grid-gap);
+}
+.rotten-category-grid .reveal { display: flex; }
+/* La tarjeta de categoría es un botón con la foto de fondo. El
+   min-height es lo que le da la altura: el contenido es solo el
+   nombre, así que sin eso la caja sería finita. */
+.rotten-category-grid button {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 190px;
+  padding: 16px;
+  border: 0;
+  overflow: hidden;
+  border-radius: var(--radius-card);
+  background: #222;   /* respaldo si la foto no carga */
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.rotten-category-grid button img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .58;            /* la foto no compite con el nombre */
+  filter: grayscale(1);    /* todo en blanco y negro, salvo el hover */
+  transition: transform .6s var(--ease-quart), opacity .3s ease;
+}
+/* el hover es el único momento con color y con zoom lento */
+.rotten-category-grid button:hover img { transform: scale(1.06); opacity: .72; }
+/* z-index 1 para que el nombre y la flecha queden arriba de la foto */
+.rotten-category-grid button span { position: relative; z-index: 1; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.rotten-category-grid button svg { position: absolute; right: 15px; bottom: 15px; z-index: 1; }
+/* la tarjeta "ver todas" es la inversa: clara, sin foto */
+.rotten-category-grid .rotten-all-categories {
+  background: var(--paper-0);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+}
+
+/* ============================================================
+   3. CATÁLOGO
+   ------------------------------------------------------------
+   La página de listado: título grande, barra de categorías
+   pegada arriba y la grilla de productos que ya viene
+   resuelta desde la sección de tarjetas.
+   ============================================================ */
+
+.rf-catalog-page { background: var(--bg); }
+.rf-catalog-head { padding: clamp(48px, 6vw, 84px) var(--gutter) 26px; }
+.rf-catalog-page .rf-eyebrow { font-size: 10px; letter-spacing: .14em; color: var(--muted); }
+/* título enorme con clamp, como en el hero */
+.rf-catalog-title {
+  margin: 10px 0 0;
+  font-size: clamp(38px, 7vw, 96px);
+  font-weight: 500;
+  letter-spacing: -.05em;
+  line-height: .9;
+  text-transform: uppercase;
+}
+.rf-catalog-count {
+  margin: 16px 0 0;
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* BARRA DE FILTROS PEGADA (sticky)
+   Se clava arriba del todo mientras scrolleás el listado. El `top`
+   no es un número fijo: usa --rotten-header-h, una variable que
+   mide el Header.jsx y actualiza con ResizeObserver, así el filtro
+   queda SIEMPRE justo debajo de la cabecera, aunque la barra
+   cambie de alto según el ancho de pantalla. El 91px es solo el
+   valor de reserva para cuando JS todavía no midió nada. */
+.rf-category-bar {
+  position: sticky;
+  top: var(--rotten-header-h, 91px);
+  z-index: 50;              /* por encima de las tarjetas, no del menú */
+  padding: 12px var(--gutter);
+  background: rgba(234, 234, 234, .9);
+  border-bottom: 1px solid var(--line);
+}
+/* riel de chips de categoría, arrastrable con el dedo */
+.rf-category-scroll { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; }
+.rf-category-scroll::-webkit-scrollbar { display: none; }
+/* border-radius: 999px = la pastilla redonda */
+.rf-category-scroll button {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper-0);
+  color: var(--ink-soft);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+.rf-category-scroll button:hover { border-color: var(--ink); color: var(--ink); }
+/* el filtro elegido se marca invertiendo los colores */
+.rf-category-scroll button.is-active { background: var(--ink); border-color: var(--ink); color: #fff; }
+.rf-catalog-page .product-grid-page { padding: 26px var(--gutter) 90px; }
+/* estado vacío: "no hay nada acá todavía" */
+.catalog-empty { padding: 80px var(--gutter); color: var(--muted); }
+
+/* ============================================================
+   4. FOOTER
+   ------------------------------------------------------------
+   Fondo claro (igual que el sitio, no un pie negro), esquinas
+   redondeadas arriba y una sombra que arranca HACIA ARRIBA: la
+   sombra se ve por la separación entre el footer y la sección
+   anterior.
+   ============================================================ */
+
+.rotten-footer {
+  background: var(--bg);
+  color: var(--ink);
+  border-top: 1px solid var(--line);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;  /* solo arriba */
+  /* el Y negativo y el difuminado grande: sombra suave, sin borde duro */
+  box-shadow: 0 -10px 28px -6px rgba(0, 0, 0, .16);
+}
+/* la línea de texto chica arriba del footer */
+.rotten-footer-kicker {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 30px 20px 0;
+  color: var(--muted);
+  font-size: 10px;
+}
+/* cuatro columnas: la primera más ancha porque tiene el newsletter */
+.rotten-footer-grid {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 34px 20px 30px;
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1fr;
+  gap: 34px;
+}
+/* los títulos de columna van en mono, como etiquetas de marca */
+.rotten-footer-grid h4 {
+  margin: 0 0 14px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rotten-footer-grid > div > h4:first-child { color: var(--ink); }
+.rotten-footer-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.rotten-footer-links button, .rotten-footer-links a {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: color .2s ease;
+}
+.rotten-footer-links button:hover, .rotten-footer-links a:hover { color: var(--ink); }
+/* LA MARCA GIGANTE
+   El cierre del sitio: "SKUL" al tamaño de la pantalla. El
+   line-height menor a 1 y el tracking negativo hacen que las
+   letras se pisen un poco, que es el aire de la marca. */
+.rotten-footer-wordmark {
+  text-align: center;
+  margin: 26px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(56px, 15vw, 190px);
+  letter-spacing: -.045em;
+  line-height: .84;
+  color: var(--ink);
+  opacity: .96;
+}
+.rotten-newsletter-form-wrap { max-width: 320px; }
+/* Formulario del newsletter: no es una caja con borde, es una
+   línea sola abajo del campo. */
+.rotten-newsletter-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 320px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(17, 17, 17, .3);
+}
+.rotten-newsletter-form input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.rotten-newsletter-form input::placeholder { color: var(--muted); }
+.rotten-newsletter-form button { background: none; border: none; color: var(--ink); flex-shrink: 0; cursor: pointer; }
+/* el tilde de privacidad va con el texto al lado */
+.rotten-privacy-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+/* accent-color tiñe el checkbox con el color de la marca */
+.rotten-privacy-check input { margin-top: 2px; accent-color: var(--ink); }
+/* franja legal de abajo: una línea y texto chico centrado */
+.rotten-footer-bottom {
+  margin-top: 22px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+/* ============================================================
+   5. RESPONSIVE GENERAL
+   ------------------------------------------------------------
+   Los breakpoints que usa todo el sitio:
+     1050px — tablet horizontal: la grilla pasa a 3 columnas;
+     820px  — celular: se reescriben cabecera, hero y footer;
+     760px  — celular chico: la grilla pasa a 2 columnas;
+     520px  — teléfono angosto: footer en una sola columna.
+
+   Qué es una media query: una condición que se reevalúa con el
+   ancho de la ventana. Es la ÚNICA forma de cambiar el diseño
+   según el dispositivo (no hay nada de "detectar el celular" en
+   CSS). El `max-width` significa "hasta este ancho, INCLUDING
+   este valor": el breakpoint es el último píxel del escritorio.
+
+   OJO: las media queries que están más abajo en el archivo (las
+   de las secciones 10, 12, 14 y los FIX) también tocan estas
+   mismas clases. Si dos media queries del mismo ancho se pisan,
+   gana la que está más abajo en el archivo.
+   ============================================================ */
+
+@media (max-width: 1050px) {
+  .product-grid-page,
+  .rotten-products .product-grid-page,
+  .rf-catalog-page .product-grid-page { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  /* el lookbook pasa a dos columnas y se sacrifica la tercera foto */
+  .rotten-lookbook-grid { grid-template-columns: 1.6fr 1fr; }
+}
+
+@media (max-width: 820px) {
+  .rotten-nav { height: 56px; }        /* barra más baja: entra más contenido */
+  .rotten-announcement { height: 26px; }
+  .rotten-announcement .rotten-ticker span { font-size: 9px; letter-spacing: .14em; }
+  /* la cuenta no entra en el celular, no la mostramos */
+  .rotten-account { display: none; }
+  .rotten-nav-left, .rotten-nav-right { gap: 13px; }
+  .rotten-logo { font-size: 22px; }
+  /* 88svh en vez de 100: deja ver un pedacito de la sección de abajo
+     y le dice al visitante que hay más para scrollear */
+  .rotten-hero { min-height: 88svh; }
+  .rotten-hero { min-height: 88svh; }
+  .rotten-hero-content { padding: 108px var(--gutter) 44px; }
+  .rotten-hero-content h1 { font-size: clamp(32px, 9.5vw, 56px); }
+  .rotten-lookbook-grid { grid-template-columns: 1.55fr 1fr; }
+  .rotten-lookbook-grid img { min-height: 220px; }
+  .rotten-lookbook-grid img:last-child { display: none; }
+  /* dos columnas de categorías y tarjetas más bajas */
+  .rotten-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rotten-category-grid button { min-height: 148px; }
+  .rotten-footer-grid { grid-template-columns: 1fr 1fr; padding: 28px 18px 22px; gap: 24px; }
+}
+
+@media (max-width: 760px) {
+  /* dos columnas: en teléfono cuatro tarjetas no se leen */
+  .product-grid-page,
+  .rotten-products .product-grid-page,
+  .rf-catalog-page .product-grid-page { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+
+@media (max-width: 520px) {
+  .rotten-footer-grid { grid-template-columns: 1fr; }
+  /* el botón del hero ocupa toda la fila: dos botones angostos son
+     blancos fáciles de tocar por error */
+  .rotten-hero-actions button { flex: 1 1 100%; }
+}
+
+/* ============================================================
+   5.b ACCESIBILIDAD — PREFERENCIA DE MENOS MOVIMIENTO
+   ------------------------------------------------------------
+   `prefers-reduced-motion` es una preferencia que el visitante
+   puede activar en el sistema (iOS: Accesibilidad > Movimiento
+   reducido; Windows: Efectos visuales). Le dice al sitio "si
+   podés, no te muevas".
+
+   Hay que respetarla por dos motivos: uno es de salud (el
+   movimiento continuo puede bloquear a gente con Disorders
+   de vértigo) y el otro es de norma: es un requisito de
+   accesibilidad que los auditores miran.
+
+   Con `animation: none` el elemento aparece ya en su estado
+   final (por eso las animaciones de acá usan `both`), así que
+   al desactivar nada queda invisible. */
+@media (prefers-reduced-motion: reduce) {
+  .rotten-ticker,
+  .rotten-hero > img,
+  .rotten-hero-eyebrow,
+  .rotten-hero-content h1,
+  .rotten-hero-actions { animation: none !important; }
+  .rotten-menu-inner { transition: none !important; }
+}
+
+/* ============================================================
+   6. HOJA DE CONTENIDO QUE SUBE SOBRE EL HERO
+   ------------------------------------------------------------
+   El truco de "la tarjeta que tapa la foto de abajo": un margen
+   negativo (valor en negativo, que en clamp() va primero) corre
+   el contenido del hero hacia arriba y deja el borde redondeado
+   de la hoja asomando por encima de la foto, como una hoja de
+   papel sobre la mesa.
+
+   El z-index: 3 sube la hoja por encima del hero (que es 0 por
+   defecto) sin tocar los de las secciones que después se
+   apilan encima (esas usan 4 a 6).
+   ============================================================ */
+
+.rf-sheet {
+  position: relative;   /* ancla de los sticky de la sección 13 */
+  z-index: 3;
+  margin-top: clamp(-70px, -6vw, -34px);
+  background: var(--bg);
+  /* solo las dos esquinas de arriba: abajo la hoja sigue hasta
+     el final del contenido */
+  border-radius: clamp(20px, 3vw, 34px) clamp(20px, 3vw, 34px) 0 0;
+}
+
+/* La rayita decorativa entre el antetítulo y el título del hero. */
+.rotten-hero-content > .rotten-hero-rule {
+  display: block;
+  width: min(440px, 62%);
+  height: 1px;
+  margin: 0 0 26px;
+  background: rgba(255, 255, 255, .8);
+}
+
+/* ============================================================
+   7. CATEGORÍA STICKY — el contenido sube mientras la foto queda
+   fija a pantalla completa y va cambiando según la categoría.
+   ------------------------------------------------------------
+   Cómo funciona: la caja de fotos tiene toda la altura de la
+   pantalla y está en `sticky` con top:0, así que se queda pegada
+   mientras scrolleás la lista de categorías que viene debajo.
+   El componente va cambiando la foto y marca la categoría activa
+   con la clase .is-active.
+
+   Truco para entrar por el medio de la lista y no en la foto
+   sola: el contenedor padre (.rf-catstory) tiene que ser más alto
+   que la caja sticky. Es lo que le da " recorrido".
+   ============================================================ */
+
+.rf-catstory { position: relative; background: var(--bg); }
+
+/* la caja de fotos: 100svh pegada arriba */
+.rf-catstory-sticky { position: sticky; top: 0; height: 100svh; overflow: hidden; }
+
+/* todas las fotos viven apiladas en el mismo cuadrado y solo se
+   ve la activa (la siguiente la tapa). */
+.rf-catstory-bg { position: absolute; inset: 0; }
+.rf-catstory-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* arrancan invisibles y un pelito más grandes; la transición
+     larga (1.4s) hace el crossfade entre fotos */
+  opacity: 0;
+  transform: scale(1.05);
+  transition: opacity .7s var(--ease-quart), transform 1.4s var(--ease-quart);
+}
+.rf-catstory-img.is-active { opacity: 1; transform: none; }
+
+/* el mismo degradado doble del hero, para que los nombres se lean
+   sobre cualquier foto (más suave, porque acá hay una caja de
+   vidrio encima: ver el bloque FIX del final del archivo) */
+.rf-catstory-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, .58), rgba(0, 0, 0, .12) 58%, transparent),
+    linear-gradient(180deg, rgba(0, 0, 0, .32), transparent 38%, rgba(0, 0, 0, .22));
+}
+
+.rf-catstory-inner {
+  position: absolute;
+  inset: 0;
+  z-index: 2;               /* arriba del degradado */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 104px var(--gutter) 66px;
+}
+
+.rf-catstory-list { display: flex; flex-direction: column; max-width: 760px; }
+.rf-catstory-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .24);
+  color: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity .35s ease, transform .5s var(--ease-quart);
+}
+/* el primer item cierra la caja con un borde arriba */
+.rf-catstory-item:first-child { border-top: 1px solid rgba(255, 255, 255, .24); }
+/* el nombre grande. Apagado (.62 de opacidad) cuando no está
+   elegido: el activo se enciende y además se aprieta un poco el
+   tracking (ese espaciado entre letras es el "subrayado"). */
+.rf-catstory-name {
+  font-size: clamp(22px, 3.4vw, 46px);
+  font-weight: 400;
+  letter-spacing: .01em;
+  line-height: 1.14;
+  text-transform: uppercase;
+  opacity: .62;
+  transition: opacity .35s ease, letter-spacing .5s var(--ease-quart);
+}
+.rf-catstory-item.is-active .rf-catstory-name { opacity: 1; letter-spacing: -.02em; }
+.rf-catstory-arrow { opacity: 0; transition: opacity .35s ease; }
+.rf-catstory-item.is-active .rf-catstory-arrow { opacity: 1; }
+
+/* Botón "ver todo": vidrio como el de la cabecera */
+.rf-catstory-all {
+  align-self: flex-start;   /* que no se estire en el flex column */
+  margin-top: 30px;
+  padding: 13px 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 255, 255, .55);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  cursor: pointer;
+  transition: background .25s ease, color .25s ease;
+}
+.rf-catstory-all:hover { background: #fff; color: var(--ink); }
+
+/* Los numeritos del costado (indicador de en qué categoría
+   estás). El `::after` es el guion corto de cada línea. */
+.rf-catstory-steps {
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  transform: translateY(-50%);   /* centra el bloque en el alto */
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(255, 255, 255, .42);
+}
+.rf-catstory-steps span { position: relative; padding-right: 16px; transition: color .3s ease; }
+.rf-catstory-steps span::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 7px;
+  height: 1px;
+  background: currentColor;
+}
+.rf-catstory-steps span.is-active { color: #fff; }
+
+/* ============================================================
+   8. MENÚ — hoja ancha de vidrio (escritorio) / pantalla (celular)
+   ------------------------------------------------------------
+   Esta es la versión del menú que REALMENTE se ve: la hoja blanca
+   de vidrio que baja debajo de la barra. Pisa a la versión oscura
+   de la sección 1 (mismo selector, más abajo en el archivo).
+
+   Escritorio: hoja ancha anclada abajo de la cabecera, con el
+   fondo oscurecido detrás. En celular (sección 12) esto se apaga
+   y aparece la pantalla con dos tarjetas.
+   ============================================================ */
+
+.rotten-menu {
+  /* absolute (no fixed) para que la hoja baje pegada a la barra y
+     se la lleve al scrollear, como un menú desplegable */
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 400;
+  padding: 0 8px 8px;
+  max-height: calc(100vh - 90px);   /* nunca más alto que la pantalla */
+  overflow-y: auto;
+  visibility: hidden;
+  opacity: 0;
+  /* cerrado no se puede clickear ni tomar foco */
+  pointer-events: none;
+  background: none;
+  transition: opacity .22s ease, visibility .22s ease;
+}
+.rotten-menu.is-open { visibility: visible; opacity: 1; pointer-events: auto; z-index: 400; }
+/* el velo oscuro de detrás de la hoja */
+.rotten-menu-backdrop { position: fixed; inset: 0; z-index: -1; background: rgba(17, 17, 17, .34); }
+
+/* La hoja de vidrio. El transform inicial la deja 10px más arriba:
+   al abrir cae un poquito hacia abajo, que es el gesto que hace
+   que se lea como una hoja saliendo de la barra. */
+.rf-megamenu {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 24px;
+  background: rgba(255, 255, 255, .86);
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: var(--radius-card);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(26px) saturate(1.6);
+  -webkit-backdrop-filter: blur(26px) saturate(1.6);
+  color: var(--ink);
+  transform: translateY(-10px);
+  transition: transform .28s var(--ease-quart);
+}
+.rotten-menu.is-open .rf-megamenu { transform: none; }
+/* la cabecera del menú (con la X) solo existe en celular */
+.rf-megamenu-head { display: none; }
+/* tres columnas: accesos rápidos | categorías | dos fotos */
+.rf-megamenu-body { display: grid; grid-template-columns: 1fr 2.7fr 1.25fr; gap: 30px; align-items: start; }
+
+.rf-megamenu-quick { display: flex; flex-direction: column; gap: 15px; }
+.rf-megamenu-quick button {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  text-transform: uppercase;
+  color: var(--ink);
+  cursor: pointer;
+  transition: opacity .2s ease;
+}
+.rf-megamenu-quick button:hover { opacity: .5; }
+
+.rf-megamenu-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.rf-megamenu-col-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* el chevron del título solo se dibuja en celular */
+.rf-megamenu-col-title svg { display: none; }
+.rf-megamenu-sublist { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.rf-megamenu-sublist button {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color .2s ease;
+}
+.rf-megamenu-sublist button:hover { color: var(--ink); }
+
+/* Las dos fotos de campaña del menú: 3:4 (vertical) para no
+   repetir el 4:5 de las tarjetas y que se lean como otra cosa. */
+.rf-megamenu-feature { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rf-megamenu-feature button {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-media);
+  overflow: hidden;
+  background: var(--paper-200);
+  cursor: pointer;
+}
+.rf-megamenu-feature img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s var(--ease-quart); }
+.rf-megamenu-feature button:hover img { transform: scale(1.05); }
+/* el nombre de la foto va abajo, con sombra de texto para poder
+   leerse sobre la foto sin un fondo propio */
+.rf-megamenu-feature span {
+  position: absolute;
+  inset: auto 12px 12px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, .6);
+}
+
+/* ============================================================
+   9. FICHA DE PRODUCTO (PDP)
+   ------------------------------------------------------------
+   Dos columnas: a la izquierda la foto grande con sus
+   miniaturas, a la derecha el panel de compra. El panel está en
+   `sticky` con top: 140px, así acompaña el scroll de la foto sin
+   tapar la cabecera (que mide ~91px y dejaría el margen).
+
+   En celular (sección 10) el panel deja de ser pegajoso y la foto
+   pasa arriba con las miniaturas en riel abajo.
+   ============================================================ */
+
+.rf-pdp { background: var(--bg); color: var(--ink); padding: 22px var(--gutter) 0; }
+.rf-pdp-inner { max-width: 1440px; margin: 0 auto; }
+
+.rf-pdp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* 1.35fr / .95fr: la foto tiene más aire que el panel */
+.rf-pdp-grid { display: grid; grid-template-columns: 1.35fr .95fr; gap: 30px; align-items: start; }
+
+/* columna de miniaturas (86px) + escenario */
+.rf-pdp-media { display: grid; grid-template-columns: 86px 1fr; gap: 12px; }
+.rf-pdp-thumbs { display: flex; flex-direction: column; gap: 10px; }
+.rf-pdp-thumbs button {
+  width: 86px;
+  height: 98px;
+  padding: 0;
+  /* borde transparente en reposo: el "activo" se marca solo
+     cambiando el color, sin que la caja baile */
+  border: 1px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--paper-0);
+  cursor: pointer;
+  transition: border-color .2s ease;
+}
+.rf-pdp-thumbs button.is-active { border-color: var(--ink); }
+.rf-pdp-thumbs img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.rf-pdp-stage {
+  position: relative;
+  /* Antes casi cuadrado (1/1.06): recortaba más arriba/abajo que el
+     4/5 que usa la grilla para la misma foto. Con el mismo 4/5 acá,
+     queda "más alejada" y consistente con el catálogo. */
+  aspect-ratio: 4 / 5;
+  /* Aire alrededor de la foto: con "contain" la prenda entra completa y
+     este padding la deja un poco más lejos del borde. */
+  padding: clamp(8px, 2.2%, 22px);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--paper-0);
+  cursor: zoom-in;   /* pista de que la foto se abre en grande */
+}
+/* "contain" para que la foto no se corte: con "cover" el marco 4/5
+   recortaba un poco la prenda. */
+.rf-pdp-stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.rf-pdp-badges { position: absolute; top: 14px; right: 14px; z-index: 2; display: flex; gap: 6px; }
+.rf-pdp-badges span {
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .95);
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+/* PANEL DE COMPRA: caja de vidrio pegada al scroll.
+   El `top: 140px` tiene que ser mayor que el alto real de la
+   cabecera: si es menor, el panel se esconde detrás de ella. */
+.rf-pdp-panel {
+  position: sticky;
+  top: 140px;
+  padding: 26px 24px 22px;
+  background: rgba(255, 255, 255, .74);
+  border: 1px solid rgba(255, 255, 255, .7);
+  border-radius: var(--radius-card);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+}
+
+.rf-pdp-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.rf-pdp-title-row h1 {
+  margin: 0;
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+/* Botón de compartir, en la esquina de la fila del título. */
+.rf-pdp-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;      /* que no se aplaste si el título es largo */
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .6);
+  font-size: 10px;
+  letter-spacing: .1em;
+  cursor: pointer;
+}
+.rf-pdp-share:hover { border-color: var(--ink); }
+
+/* BLOQUE DE PRECIO
+   Cómo se simula el descuento: el componente manda el precio final
+   y el precio original. El original va con "line-through" (el
+   tachado, que acá es la clase .rf-pdp-strike) y el final, grande,
+   en tinta. Si el final fuera un número inventado, el tachado es
+   lo único que sostiene la mentira, así que los dos tienen que
+   estar siempre juntos. */
+.rf-pdp-price { margin: 16px 0 22px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+.rf-pdp-price-main, .rf-pdp-price-alt { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+/* el precio que se paga: el número grande de la ficha */
+.rf-pdp-now { font-size: clamp(26px, 3vw, 34px); font-weight: 600; letter-spacing: -.02em; }
+/* precio original tachado y precio en cuotas, en una fila aparte */
+.rf-pdp-price-alt { margin-top: 6px; }
+.rf-pdp-price-alt > span:first-child { font-size: 13px; color: var(--muted); }
+/* EL TACHADO DE OUTLET: el precio original va con línea cruzada
+   y el discount se entiende sin decir la palabra. */
+.rf-pdp-strike { text-decoration: line-through; }
+/* nota al pie del precio (stock, cupón,etc.) */
+.rf-pdp-note { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-align: right; }
+
+/* Cada bloque de opciones (color, talle) es un "field" con su
+   etiqueta arriba. */
+.rf-pdp-field { margin-bottom: 20px; }
+.rf-pdp-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* SWATCHES DE COLOR: círculos del color real (el fondo lo pone el
+   componente con el color del producto). */
+.rf-pdp-swatches { display: flex; gap: 8px; }
+.rf-pdp-swatches button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, .16);
+  border-radius: 50%;
+  cursor: pointer;
+}
+/* El elegido se marca con dos anillos concéntricos de sombra (el
+   del medio del color de fondo hace de separación entre los dos
+   anillos: sin él parecería un borde grueso y chueco). */
+.rf-pdp-swatches button.is-active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ink); }
+
+/* TALLES: botones con alto fijo para que la fila sea una tira. */
+.rf-pdp-sizes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rf-pdp-size {
+  min-width: 52px;
+  height: 40px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .6);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+.rf-pdp-size:hover { border-color: var(--ink); }
+.rf-pdp-size.is-active { background: var(--ink); border-color: var(--ink); color: #fff; }
+/* talle sin stock: tachado y apagado, cursor prohibido */
+.rf-pdp-size.is-out { text-decoration: line-through; color: var(--muted); opacity: .5; cursor: not-allowed; }
+/* "elegí tu talle" y el aviso de error (el único texto en óxido
+   del panel) */
+.rf-pdp-hint { font-size: 11px; color: var(--muted); }
+.rf-pdp-hint-alert { margin: 8px 0 0; color: var(--ember); }
+
+.rf-pdp-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* BOTÓN DE COMPRA. OJO: el color final de este botón NO es el de
+   acá, lo pisa el bloque "FIX: ningún botón negro" del final del
+   archivo con var(--ember). El fondo en tinta de esta regla es el
+   valor de referencia. */
+.rf-pdp-cta {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .2s ease;
+}
+/* `:not(:disabled)` para que el hover no se aplique al botón
+   apagado y no parezca que se puede comprar */
+.rf-pdp-cta:not(:disabled):hover { background: #000; }
+.rf-pdp-cta:disabled { background: #9c9c95; cursor: not-allowed; }
+
+/* la línea de envíos / forma de pago bajo el botón */
+.rf-pdp-ship { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 11px; color: var(--muted); }
+
+/* LA BARRA DE FIT (la que va de "ajustado" a "suelto").
+   Es pura decoración: los tres textos de arriba están alineados
+   con los tres puntos de la línea y el component mueve el punto
+   con left en % según el valor. */
+.rf-pdp-fit { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.rf-pdp-fit .rf-pdp-label span { flex: 1; font-size: 9px; letter-spacing: .06em; }
+.rf-pdp-fit .rf-pdp-label span:nth-of-type(1) { text-align: left; }
+.rf-pdp-fit .rf-pdp-label span:nth-of-type(2) { text-align: center; }
+.rf-pdp-fit .rf-pdp-label span:nth-of-type(3) { text-align: right; }
+/* la línea de 2px sobre la que se mueve el cuadradito */
+.rf-pdp-fit-track { position: relative; height: 2px; background: var(--line); }
+.rf-pdp-fit-track span {
+  position: absolute;
+  top: -3px;          /* centrado sobre la línea de 2px */
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;  /* corrige para que el left en % sea el centro */
+  background: var(--ink);
+  border-radius: 1px;
+}
+
+/* ACORDEONES (talles, envío, cuidado). El body está siempre en el
+   flujo: el componente lo muestra o lo esconde, no hay animación
+   de alto. */
+.rf-pdp-accordions { margin-top: 22px; border-top: 1px solid var(--line); }
+.rf-pdp-acc { border-bottom: 1px solid var(--line); }
+.rf-pdp-acc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  font-size: 11.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.rf-pdp-acc-index { color: var(--muted); font-size: 10px; }
+.rf-pdp-acc-title { flex: 1; }
+.rf-pdp-acc-body { padding-bottom: 18px; font-size: 13px; line-height: 1.65; color: var(--ink-soft); }
+.rf-pdp-acc-body p { margin: 0 0 12px; }
+/* texto técnico (composición, medidas) en mono */
+.rf-pdp-mono { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.rf-pdp-link {
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+/* los sellos de confianza (envío, devoluciones) */
+.rf-pdp-trust { display: flex; flex-wrap: wrap; gap: 16px; font-size: 11.5px; color: var(--muted); }
+.rf-pdp-trust span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* TE PUEDE INTERESAR: reutiliza la grilla de tarjetas de más
+   arriba, acá solo el aire y el título. */
+.rf-pdp-related { margin-top: 58px; padding-bottom: 74px; }
+.rf-pdp-related-head h2 {
+  margin: 0 0 18px;
+  font-size: clamp(18px, 2.2vw, 26px);
+  font-weight: 500;
+  letter-spacing: -.02em;
+  text-transform: uppercase;
+}
+
+/* La barra de compra fija del celular: oculta en escritorio y la
+   activa la media query de la sección 10. */
+.rf-pdp-sticky { display: none; }
+
+/* LIGHTBOX: la foto abierta en pantalla completa. El fondo
+   transparente lo pone el componente (o el overlay que lo envuelve),
+   por eso esto no trae fondo propio. */
+.rf-pdp-lightbox { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+.rf-pdp-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
+/* cuando lo que se abre es la tela animada, el cuadrado es fijo */
+.rf-pdp-lightbox-fabric { width: min(90vw, 600px); height: min(80vh, 600px); }
+.rf-pdp-lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, .6);
+  border-radius: 50%;
+  background: none;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* --- riel horizontal (también te puede interesar) --- */
+.product-grid-page.is-rail {
+  display: flex !important;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 10px;
+  scrollbar-width: none;
+}
+.product-grid-page.is-rail::-webkit-scrollbar { display: none; }
+.product-grid-page.is-rail .reveal { flex: 0 0 clamp(160px, 21vw, 250px); scroll-snap-align: start; }
+
+/* ============================================================
+   10. RESPONSIVE — menú, categoría y ficha
+   ============================================================ */
+
+@media (max-width: 1024px) {
+  .rf-pdp-grid { grid-template-columns: 1fr; gap: 18px; }
+  .rf-pdp-panel { position: static; }
+  .rf-megamenu-body { grid-template-columns: 1fr 2.4fr; }
+  .rf-megamenu-feature { display: none; }
+}
+
+@media (max-width: 820px) {
+  /* menú a pantalla completa y clara */
+  .rotten-menu {
+    position: fixed;
+    inset: 0;
+    padding: 8px;
+    max-height: none;
+    background: var(--bg);
+  }
+  .rotten-menu-backdrop { display: none; }
+  .rf-megamenu {
+    max-width: none;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .rf-megamenu-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 4px 20px;
+  }
+  .rf-megamenu-close {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rf-megamenu-body { display: block; }
+  .rf-megamenu-quick { gap: 0; margin-bottom: 26px; }
+  .rf-megamenu-quick button {
+    width: 100%;
+    padding: 13px 2px;
+    font-size: 21px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+  .rf-megamenu-cols { display: block; }
+  .rf-megamenu-col-title {
+    padding: 15px 2px;
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+  }
+  .rf-megamenu-col-title svg { display: block; }
+  .rf-megamenu-sublist {
+    max-height: 0;
+    overflow: hidden;
+    margin: 0;
+    transition: max-height .3s ease;
+  }
+  .rf-megamenu-sublist.is-open { max-height: 280px; margin: 12px 0 6px 4px; }
+  .rf-megamenu-feature { display: none; }
+  .rf-megamenu-quick button:last-child { border-bottom: 0; }
+
+  /* ficha de producto: foto arriba, miniaturas abajo, barra fija */
+  .rf-pdp { padding: 12px var(--gutter) 96px; }
+  .rf-pdp-media { display: flex; flex-direction: column; gap: 10px; }
+  .rf-pdp-stage { order: 1; aspect-ratio: 4 / 5; border-radius: var(--radius-media); }
+  .rf-pdp-thumbs {
+    order: 2;
+    flex-direction: row;
+    gap: 6px;
+    width: max-content;
+    max-width: 100%;
+    padding: 5px;
+    border-radius: var(--radius-control);
+    background: rgba(255, 255, 255, .72);
+    border: 1px solid rgba(0, 0, 0, .07);
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  }
+  .rf-pdp-thumbs button { width: 52px; height: 58px; border-radius: 8px; }
+  .rf-pdp-panel { padding: 20px 16px 18px; }
+  .rf-pdp-sticky {
+    display: block;
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 80;
+    padding: 10px var(--gutter) calc(10px + env(safe-area-inset-bottom));
+    background: rgba(234, 234, 234, .93);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .rf-pdp-sticky button {
+    width: 100%;
+    min-height: 50px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: var(--ink);
+    color: #fff;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .rf-pdp-sticky button:disabled { background: #9c9c95; }
+
+  .rf-catstory-inner { padding: 92px var(--gutter) 54px; }
+  .rf-catstory-name { font-size: clamp(20px, 7vw, 32px); }
+  .rf-catstory-steps { display: none; }
+}
+
+/* ============================================================
+   11. ARREGLOS Y AGREGADOS
+   ============================================================ */
+
+/* El panel de menú heredaba `bottom: 0` de la capa vieja, así que
+   quedaba con altura cero y no se veía nada al abrirlo. */
+.rotten-menu { bottom: auto; }
+
+.rf-mshell { display: none; }
+
+/* --- contraste de la sección de categorías (texto legible) --- */
+.rf-catstory-shade {
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, .88), rgba(0, 0, 0, .62) 36%, rgba(0, 0, 0, .2) 68%, transparent),
+    linear-gradient(180deg, rgba(0, 0, 0, .6), rgba(0, 0, 0, .18) 38%, rgba(0, 0, 0, .66));
+}
+.rf-catstory-list {
+  padding: 20px 24px;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(255, 255, 255, .13);
+  background: rgba(8, 8, 8, .38);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+.rf-catstory-name { text-shadow: 0 2px 18px rgba(0, 0, 0, .75); }
+
+/* --- riel que se despliega con el scroll --- */
+.rf-pin { position: relative; background: var(--bg); }
+.rf-pin-sticky {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  overflow: hidden;
+  padding: 96px 0 40px;
+}
+.rf-pin-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 var(--gutter);
+}
+.rf-pin-head h2 {
+  margin: 0;
+  font-size: clamp(24px, 3.4vw, 46px);
+  font-weight: 500;
+  letter-spacing: -.04em;
+  text-transform: uppercase;
+}
+.rf-pin-tools { display: flex; align-items: center; gap: 8px; }
+.rf-pin-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .72);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.rf-pin-tools button:hover { border-color: var(--ink); }
+.rf-pin-all { font-weight: 600; }
+.rf-pin-viewport { overflow: hidden; }
+.rf-pin-track {
+  display: flex;
+  width: max-content;
+  padding: 0 var(--gutter);
+  will-change: transform;
+  transition: transform .18s linear;
+}
+.rf-pin-track .product-grid-page.is-rail {
+  display: flex !important;
+  overflow: visible !important;
+  padding: 0 !important;
+}
+.rf-pin-track .product-grid-page .reveal {
+  flex: 0 0 clamp(210px, 25vw, 330px);
+}
+.rf-pin-note {
+  margin: 0;
+  padding: 0 var(--gutter);
+  font-size: 10px;
+  letter-spacing: .14em;
+  color: var(--muted);
+}
+
+/* --- sección No-Restock dentro del home --- */
+.rf-home-nrs { background: #111110; color: #fff; padding: clamp(46px, 5vw, 84px) 0 clamp(50px, 5vw, 90px); }
+.rf-home-nrs-head { max-width: 820px; padding: 0 var(--gutter) 28px; }
+.rf-home-nrs-head p { margin: 0 0 12px; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: #c8754a; }
+.rf-home-nrs-head h2 {
+  margin: 0 0 16px;
+  font-size: clamp(38px, 6vw, 86px);
+  font-weight: 500;
+  letter-spacing: -.05em;
+  line-height: .9;
+  text-transform: uppercase;
+  color: #fff;
+}
+.rf-home-nrs-head > div { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+.rf-home-nrs-head > div > span { max-width: 470px; font-size: 14px; line-height: 1.6; color: rgba(255, 255, 255, .66); }
+.rf-home-nrs-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 22px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .1);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .25s ease, color .25s ease;
+}
+.rf-home-nrs-cta:hover { background: #fff; color: var(--ink); }
+
+/* --- paleta propia de No-Restock (nada gris de la tienda) --- */
+.nrs-page .rf-product-card-dark,
+.rf-home-nrs .rf-product-card-dark {
+  border: 1px solid rgba(255, 255, 255, .10);
+  border-radius: var(--radius-card);
+  background: #141413;
+}
+.nrs-page .rf-product-card-dark .rf-product-media,
+.rf-home-nrs .rf-product-card-dark .rf-product-media {
+  border-radius: var(--radius-media);
+  background: #100f0f;
+}
+.nrs-page .rf-product-name, .rf-home-nrs .rf-product-name { color: #f2f0ea; }
+.nrs-page .rf-price, .rf-home-nrs .rf-price { color: #fff; }
+.nrs-page .rf-transfer, .rf-home-nrs .rf-transfer { color: #d1743f; }
+.nrs-page .rf-old-price, .rf-home-nrs .rf-old-price,
+.nrs-page .rf-no-size, .rf-home-nrs .rf-no-size { color: #9a968e; }
+.nrs-page .rf-product-info, .rf-home-nrs .rf-product-info { border-top: 1px solid #2c2a27; }
+.nrs-page .rf-product-badges span,
+.rf-home-nrs .rf-product-badges span {
+  background: rgba(12, 12, 11, .88);
+  border: 1px solid rgba(255, 255, 255, .24);
+  color: #f2f0ea;
+}
+.nrs-page .rf-product-card-dark .rf-quick-sizes button,
+.rf-home-nrs .rf-product-card-dark .rf-quick-sizes button {
+  border-color: rgba(255, 255, 255, .28);
+  background: rgba(255, 255, 255, .06);
+  color: #f2f0ea;
+}
+.nrs-page .rf-product-card-dark .rf-quick-sizes button:hover,
+.rf-home-nrs .rf-product-card-dark .rf-quick-sizes button:hover { background: #f2f0ea; color: #111; }
+
+/* ============================================================
+   12. MENÚ EN CELULAR — dos tarjetas redondeadas (como la referencia)
+   ============================================================ */
+
+@media (max-width: 820px) {
+  .rf-megamenu { display: none; }
+  .rf-mshell { display: block; }
+
+  .rotten-menu {
+    position: fixed;
+    inset: 0;
+    padding: 10px;
+    max-height: none;
+    overflow-y: auto;
+    background: var(--bg);
+  }
+
+  .rf-mcard {
+    background: rgba(255, 255, 255, .74);
+    border: 1px solid rgba(255, 255, 255, .7);
+    border-radius: var(--radius-card);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .06);
+    backdrop-filter: blur(18px) saturate(1.5);
+    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  }
+
+  .rf-mcard-top { position: relative; margin-bottom: 10px; padding: 12px 14px 16px; text-align: center; }
+  .rf-mclose {
+    position: absolute;
+    left: 6px;
+    top: 8px;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rf-mseg {
+    display: inline-flex;
+    margin-top: 12px;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(17, 17, 17, .07);
+  }
+  .rf-mseg button {
+    padding: 9px 20px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    font-size: 13px;
+    letter-spacing: .04em;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: background .2s ease, color .2s ease;
+  }
+  .rf-mseg button.is-active { background: var(--ink); color: #fff; }
+
+  .rf-mcard-body { padding: 20px 16px 18px; }
+
+    .rf-mprimary { display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px; }
+  .rf-mprimary button {
+    width: 100%;
+    padding: 13px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--paper-0);
+    text-align: left;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -.01em;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .rf-mprimary button:active { background: var(--paper-100); border-color: var(--ink); }
+
+  .rf-mgroups { display: flex; flex-direction: column; gap: 8px; }
+  .rf-mgroup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--paper-0);
+    text-align: left;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .rf-mgroup-head.is-open { background: var(--paper-100); border-color: var(--ink); }
+  .rf-mgroup-head svg { transition: transform .3s ease; }
+  .rf-mgroup-head.is-open svg { transform: rotate(45deg); }
+  .rf-mgroup-sub { list-style: none; margin: 0; padding: 0; max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+  .rf-mgroup-sub.is-open { max-height: 260px; padding: 10px 4px 4px; display: flex; flex-direction: column; gap: 6px; }
+  .rf-mgroup-sub button {
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    background: var(--paper-0);
+    text-align: left;
+    font-size: 13px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: background .2s ease, border-color .2s ease;
+  }
+  .rf-mgroup-sub button:active { background: var(--paper-100); border-color: var(--ink); color: var(--ink); }
+  .rf-mprimary button:last-child { border-bottom: 0; }
+
+  .rf-mgroup-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 15px 2px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    background: none;
+    text-align: left;
+    font-size: 16px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rf-mgroup-head svg { transition: transform .3s ease; }
+  .rf-mgroup-head.is-open svg { transform: rotate(45deg); }
+  .rf-mgroup-sub { list-style: none; margin: 0; padding: 0; max-height: 0; overflow: hidden; transition: max-height .3s ease; }
+  .rf-mgroup-sub.is-open { max-height: 260px; padding: 10px 0 4px 4px; }
+  .rf-mgroup-sub button {
+    padding: 7px 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    font-size: 14px;
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+
+  .rf-mfoot { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 26px; }
+  .rf-mbtn-dark, .rf-mbtn-light {
+    display: grid;
+    place-items: center;
+    min-height: 46px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .rf-mbtn-dark { background: var(--ink); border: 1px solid var(--ink); color: #fff; }
+  .rf-mbtn-light { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+  .rf-mcountry {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-decoration: none;
+  }
+
+  .rf-pin { height: auto !important; }
+  .rf-pin-sticky { position: static; height: auto; padding: 40px 0 30px; gap: 18px; }
+  .rf-pin-viewport { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .rf-pin-viewport::-webkit-scrollbar { display: none; }
+  .rf-pin-tools button:not(.rf-pin-all) { display: none; }
+  .rf-pin-note { display: none; }
+  .rf-catstory-list { padding: 16px 16px; }
+}
+
+/* ============================================================
+   13. EL CONTENIDO SUBE — secciones que se apilan + arreglos
+   ============================================================ */
+
+/* Cada bloque del home queda clavado arriba y el siguiente se le
+   sube por encima. Es el movimiento de "el contenido va hacia
+   arriba" en vez de un scroll plano. */
+.rf-sheet > .rotten-products,
+.rf-sheet > .rf-home-nrs,
+.rf-sheet > .rotten-lookbook {
+  position: sticky;
+  top: 0;
+  border-radius: clamp(18px, 2.4vw, 28px) clamp(18px, 2.4vw, 28px) 0 0;
+  box-shadow: 0 -14px 34px -12px rgba(0, 0, 0, .22);
+  background: var(--bg);
+}
+.rf-sheet > .rotten-products { z-index: 4; }
+.rf-sheet > .rf-home-nrs { z-index: 5; background: #111110; }
+.rf-sheet > .rotten-lookbook { z-index: 6; }
+
+/* La sección de categorías tiene que pasar POR ENCIMA de las que
+   quedaron apiladas, si no la taparían. */
+.rf-catstory { position: relative; z-index: 7; }
+
+/* --- riel de Novedades: se mueve con scrollLeft, así que se puede
+   empujar a mano además de acompañar el scroll --- */
+.rf-pin-viewport {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rf-pin-viewport::-webkit-scrollbar { display: none; }
+.rf-pin-viewport > .product-grid-page.is-rail {
+  display: flex !important;
+  overflow: visible !important;
+  width: max-content;
+  padding: 0 var(--gutter) 10px !important;
+}
+.rf-pin-viewport .product-grid-page .reveal { flex: 0 0 clamp(210px, 25vw, 330px); }
+
+/* --- No-Restock en el home: siluetas tapadas, no el catálogo --- */
+.rf-home-nrs-count { margin: 18px 0 0; font-size: 10px; letter-spacing: .14em; color: rgba(255, 255, 255, .5); }
+.rf-home-nrs-veil {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--grid-gap);
+  width: 100%;
+  padding: 0 var(--gutter);
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.rf-home-nrs-slot {
+  position: relative;
+  display: block;
+  aspect-ratio: 4 / 5;
+  border-radius: var(--radius-media);
+  overflow: hidden;
+  background: #1a1a19;
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+.rf-home-nrs-slot img,
+.rf-home-nrs-slot .fabric {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(16px) saturate(.45) brightness(.5);
+  transform: scale(1.18);
+  transition: filter .5s var(--ease-quart);
+}
+.rf-home-nrs-slot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 10, 10, .1), rgba(10, 10, 10, .78));
+}
+.rf-home-nrs-lock {
+  position: absolute;
+  inset: auto 0 16px;
+  z-index: 2;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .2em;
+  color: rgba(255, 255, 255, .6);
+}
+.rf-home-nrs-veil:hover .rf-home-nrs-slot img,
+.rf-home-nrs-veil:hover .rf-home-nrs-slot .fabric { filter: blur(10px) saturate(.6) brightness(.62); }
+
+/* --- categorías: que los nombres se lean --- */
+.rf-catstory-list { background: rgba(8, 8, 8, .58); }
+.rf-catstory-name { opacity: .82; }
+.rf-catstory-item.is-active .rf-catstory-name { opacity: 1; }
+
+/* --- ficha de producto de un drop único: paleta oscura --- */
+.rf-pdp-dark { background: #111110; color: #f2f0ea; }
+.rf-pdp-dark .rf-pdp-back { color: #9a968e; }
+.rf-pdp-dark .rf-pdp-stage,
+.rf-pdp-dark .rf-pdp-thumbs button { background: #100f0f; border-color: rgba(255, 255, 255, .12); }
+.rf-pdp-dark .rf-pdp-thumbs button.is-active { border-color: #f2f0ea; }
+.rf-pdp-dark .rf-pdp-panel {
+  background: rgba(23, 23, 22, .8);
+  border-color: rgba(255, 255, 255, .12);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .45);
+}
+.rf-pdp-dark .rf-pdp-title-row h1,
+.rf-pdp-dark .rf-pdp-now,
+.rf-pdp-dark .rf-pdp-related-head h2,
+.rf-pdp-dark .rf-pdp-link { color: #fff; }
+.rf-pdp-dark .rf-pdp-note,
+.rf-pdp-dark .rf-pdp-label,
+.rf-pdp-dark .rf-pdp-hint,
+.rf-pdp-dark .rf-pdp-ship,
+.rf-pdp-dark .rf-pdp-acc-index,
+.rf-pdp-dark .rf-pdp-mono,
+.rf-pdp-dark .rf-pdp-trust,
+.rf-pdp-dark .rf-pdp-price-alt > span:first-child { color: #9a968e; }
+.rf-pdp-dark .rf-pdp-price,
+.rf-pdp-dark .rf-pdp-accordions,
+.rf-pdp-dark .rf-pdp-acc,
+.rf-pdp-dark .rf-pdp-fit { border-color: rgba(255, 255, 255, .14); }
+.rf-pdp-dark .rf-pdp-acc-body { color: rgba(255, 255, 255, .72); }
+.rf-pdp-dark .rf-pdp-size {
+  background: rgba(255, 255, 255, .06);
+  border-color: rgba(255, 255, 255, .18);
+  color: #f2f0ea;
+}
+.rf-pdp-dark .rf-pdp-size.is-active { background: #f2f0ea; border-color: #f2f0ea; color: #111; }
+.rf-pdp-dark .rf-pdp-size.is-out { color: #6f6b64; }
+.rf-pdp-dark .rf-pdp-cta { background: #f2f0ea; color: #111; }
+.rf-pdp-dark .rf-pdp-cta:disabled { background: #4a4742; color: #a8a49c; }
+.rf-pdp-dark .rf-pdp-share,
+.rf-pdp-dark .rf-pdp-sticky button { background: rgba(255, 255, 255, .08); border-color: rgba(255, 255, 255, .18); color: #f2f0ea; }
+.rf-pdp-dark .rf-pdp-fit-track { background: rgba(255, 255, 255, .18); }
+.rf-pdp-dark .rf-pdp-fit-track span { background: #f2f0ea; }
+.rf-pdp-dark .rf-pdp-guide { color: #9a968e; }
+.rf-pdp-dark .rf-pdp-sticky { background: rgba(17, 17, 16, .94); border-color: rgba(255, 255, 255, .12); }
+
+/* --- la cabecera también se pone oscura en un drop único --- */
+.skul-root.is-nrs .rotten-header { color: #fff; }
+.skul-root.is-nrs .rotten-bar { background: rgba(17, 17, 17, .55); border-color: rgba(255, 255, 255, .16); }
+.skul-root.is-nrs .rotten-announcement { border-color: rgba(255, 255, 255, .16); }
+.skul-root.is-nrs .rotten-cat-strip button { color: rgba(255, 255, 255, .66); }
+.skul-root.is-nrs .rotten-cat-strip button:hover,
+.skul-root.is-nrs .rotten-cat-strip button.is-active { color: #fff; }
+
+/* ============================================================
+   14. CABECERA EN CELULAR — cinta y barra como dos piezas
+   ============================================================ */
+
+.rotten-shop-text { display: inline; }
+.rotten-shop-icon { display: none; }
+
+@media (max-width: 820px) {
+  .rotten-shop-toggle { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; }
+  .rotten-shop-text { display: none; }
+  .rotten-shop-icon { display: inline-flex; align-items: center; }
+
+  .rotten-bar {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .rotten-announcement {
+    height: 28px;
+    margin-bottom: 6px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 999px;
+    background: rgba(17, 17, 17, .32);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .skul-root:not(.page-home) .rotten-announcement { background: rgba(255, 255, 255, .74); border-color: rgba(17, 17, 17, .08); }
+  .skul-root.is-nrs .rotten-announcement { background: rgba(17, 17, 17, .5); border-color: rgba(255, 255, 255, .16); }
+
+  .rotten-nav {
+    height: 54px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: var(--radius-panel);
+    background: rgba(17, 17, 17, .32);
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .skul-root:not(.page-home) .rotten-nav {
+    background: rgba(255, 255, 255, .76);
+    border-color: rgba(17, 17, 17, .08);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .06);
+  }
+  .skul-root.is-nrs .rotten-nav { background: rgba(17, 17, 17, .55); border-color: rgba(255, 255, 255, .16); }
+
+  .rotten-cat-strip { display: none; }
+
+  .rf-home-nrs-veil { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ============================================================
+   15. TODAS LAS SECCIONES SUBEN + CARRITO + BOTONES
+   ============================================================ */
+
+/* NOVEDADES pasa a ser un bloque más de la pila: sube por encima
+   del anterior y la fila se empuja a mano (o con las flechas), así
+   no hay que recorrerla entera para seguir bajando. */
+.rf-pin {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: clamp(40px, 5vw, 74px) 0;
+  background: var(--bg);
+  border-radius: clamp(18px, 2.4vw, 28px) clamp(18px, 2.4vw, 28px) 0 0;
+  box-shadow: 0 -14px 34px -12px rgba(0, 0, 0, .22);
+}
+.rf-pin-head { margin-bottom: 22px; }
+.rf-pin-sticky { position: static; height: auto; overflow: visible; padding: 0; display: block; }
+.rf-pin-note { margin-top: 16px; }
+
+/* ============================================================
+   16. CARRITO — integrado al diseño y por encima de todo
+   ============================================================ */
+
+.rf-cart-root { position: fixed; inset: 0; z-index: 600; display: flex; justify-content: flex-end; }
+.rf-cart-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 17, 17, .42);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: rfFade .25s ease both;
+}
+.rf-cart {
+  position: relative;
+  width: min(430px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, .22);
+  animation: rfCartIn .35s var(--ease-quart) both;
+}
+@keyframes rfFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rfCartIn { from { transform: translateX(102%); } to { transform: none; } }
+
+.rf-cart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.rf-cart-title { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }
+.rf-cart-close {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--paper-0);
+  cursor: pointer;
+}
+.rf-cart-close:hover { border-color: var(--ink); }
+
+.rf-cart-empty { display: grid; gap: 16px; justify-items: start; padding: 34px 20px; }
+.rf-cart-empty p { margin: 0; font-size: 14px; color: var(--muted); }
+
+.rf-cart-items { flex: 1; overflow-y: auto; padding: 8px 20px; }
+.rf-cart-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.rf-cart-item-media { display: flex; gap: 12px; min-width: 0; }
+.rf-cart-thumb { width: 52px; height: 65px; object-fit: cover; border-radius: 6px; flex-shrink: 0; background: var(--paper-200); }
+.rf-cart-item-main { min-width: 0; }
+.rf-cart-name { margin: 0 0 4px; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.rf-cart-size { margin: 0 0 10px; font-size: 11px; color: var(--muted); }
+.rf-cart-qty { display: flex; align-items: center; gap: 8px; }
+.rf-cart-qty button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-0);
+  cursor: pointer;
+}
+.rf-cart-qty button:hover:not(:disabled) { border-color: var(--ink); }
+.rf-cart-qty button:disabled { opacity: .35; cursor: not-allowed; }
+.rf-cart-qty span { min-width: 18px; text-align: center; font-size: 12px; }
+.rf-cart-remove { margin-left: 6px; border-color: transparent !important; background: none !important; color: var(--muted); }
+.rf-cart-remove:hover { color: var(--ember); }
+.rf-cart-price { font-size: 13px; font-weight: 600; white-space: nowrap; }
+
+.rf-cart-foot {
+  padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, .55);
+}
+.rf-cart-total { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.rf-cart-total > span:first-child { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.rf-cart-total .mono { font-size: 17px; font-weight: 600; }
+.rf-cart-note { margin: 0 0 14px; font-size: 9.5px; letter-spacing: .12em; color: var(--muted); }
+.rf-cart-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 50px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--ink);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.rf-cart-cta:hover { background: #000; }
+
+@media (max-width: 560px) {
+  .rf-cart { width: 100%; border-left: 0; }
+}
+
+/* ============================================================
+   17. UN SOLO LENGUAJE DE BOTONES (adiós a los negros de más)
+   ============================================================ */
+
+.btn-primary, .btn-ghost, .btn-ghost-inv {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 24px;
+  border-radius: var(--radius-control);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  transition: background .22s ease, color .22s ease, border-color .22s ease;
+}
+.btn-primary { background: var(--ink); border: 1px solid var(--ink); color: #fff; }
+.btn-primary:hover { background: #000; border-color: #000; }
+.btn-ghost { background: var(--paper-0); border: 1px solid var(--line); color: var(--ink); }
+.btn-ghost:hover { background: var(--paper-100); border-color: var(--ink); color: var(--ink); }
+.btn-ghost-inv { background: rgba(255, 255, 255, .08); border: 1px solid rgba(255, 255, 255, .45); color: #fff; }
+.btn-ghost-inv:hover { background: #fff; border-color: #fff; color: var(--ink); }
+
+/* Estados seleccionados: siguen siendo oscuros (es lo correcto para
+   marcar "esto está elegido"), pero con el mismo redondeo. */
+.zone-radio, .pay-radio, .size-radio { border-radius: 8px; }
+
+input:focus, textarea:focus, select:focus, button:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+/* Panel de admin: campos al mismo tono que el resto del sitio */
+.admin-panel input, .admin-panel select, .admin-panel textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper-0);
+  color: var(--ink);
+}
+.admin-panel input:focus, .admin-panel select:focus, .admin-panel textarea:focus { border-color: var(--ink); }
+.admin-table th { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+
+/* === FIX: nombres de categoría legibles === */
+.rf-catstory-list {
+  background: rgba(12, 12, 12, .74) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  padding: 18px 22px !important;
+  border: 1px solid rgba(255, 255, 255, .16) !important;
+  border-radius: var(--radius-card) !important;
+}
+.rf-catstory-item {
+  opacity: 1 !important;
+  border-bottom-color: rgba(255, 255, 255, .28) !important;
+}
+.rf-catstory-item:first-child { border-top-color: rgba(255, 255, 255, .28) !important; }
+.rf-catstory-name {
+  opacity: 1 !important;
+  color: #fff !important;
+  font-weight: 500 !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 2px 18px rgba(0, 0, 0, .75) !important;
+}
+.rf-catstory-item:not(.is-active) .rf-catstory-name { color: rgba(255, 255, 255, .74) !important; }
+.rf-catstory-item.is-active .rf-catstory-name { color: #fff !important; }
+.rf-catstory-arrow { color: #fff !important; }
+
+/* los numeritos del costado (1,2,3...) */
+.rf-catstory-steps { color: rgba(255, 255, 255, .75) !important; font-size: 12px !important; }
+.rf-catstory-steps span.is-active { color: #fff !important; }
+
+/* === FIX: Shop the Look sin cortar y con las tres fotos parejas === */
+.rotten-lookbook-grid {
+  grid-template-columns: 2fr 1fr 1fr !important;
+  grid-auto-rows: clamp(320px, 40vw, 560px) !important;
+  align-items: stretch !important;
+  gap: var(--grid-gap) !important;
+  padding: 0 var(--gutter) !important;
+  background: transparent !important;
+}
+.rotten-lookbook-grid > .reveal { height: 100% !important; }
+.rotten-lookbook-grid img {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  object-fit: cover !important;
+  object-position: center 35% !important;
+  border-radius: var(--radius-media) !important;
+  display: block !important;
+}
+/* en tablet y celular, 2 columnas y solo las 2 primeras fotos
+   (antes se ocultaban TODAS por un selector mal escrito) */
+@media (max-width: 1050px) {
+  .rotten-lookbook-grid { grid-template-columns: 1.6fr 1fr !important; grid-auto-rows: clamp(280px, 44vw, 460px) !important; }
+}
+@media (max-width: 820px) {
+  .rotten-lookbook-grid { grid-template-columns: 1.55fr 1fr !important; grid-auto-rows: clamp(220px, 52vw, 340px) !important; }
+  .rotten-lookbook-grid > .reveal { display: block !important; }
+  .rotten-lookbook-grid > .reveal:nth-child(n+3) { display: none !important; }
+}
+
+
+/* ============================================================
+   FIX: ningún botón negro en la web pública
+   (el panel de admin NO se toca)
+   ============================================================ */
+
+/* 1 y 2 — chips y pastillas de talle: nunca más negro,
+   ni elegidos ni al pasar el mouse */
+.rf-category-scroll button:hover {
+  background: var(--paper-100) !important;
+  border-color: var(--ink) !important;
+  color: var(--ink) !important;
+}
+.rf-category-scroll button.is-active {
+  background: var(--paper-0) !important;
+  border-color: var(--ink) !important;
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
+.rf-quick-sizes button:hover {
+  background: var(--paper-100) !important;
+  border-color: var(--ink) !important;
+  color: var(--ink) !important;
+}
+
+/* 3 — forma de pago y zona elegidas (checkout / Correo Argentino) */
+.zone-radio.active,
+.pay-radio.active,
+.size-radio.active {
+  background: var(--paper-0) !important;
+  border: 1px solid var(--ink) !important;
+  color: var(--ink) !important;
+  box-shadow: inset 0 0 0 1px var(--ink) !important;
+}
+
+/* 4, 5 y 6 — los botones de compra pasan al óxido del sitio.
+     Si los querés de vuelta en negro: cambiá var(--ember) por var(--ink). */
+.rf-pdp-cta,
+.rf-cart-cta,
+.rf-pdp-sticky button {
+  background: var(--ember) !important;
+  border: 1px solid var(--ember) !important;
+  color: #fff !important;
+}
+.rf-pdp-cta:not(:disabled):hover,
+.rf-cart-cta:hover,
+.rf-pdp-sticky button:not(:disabled):hover {
+  background: #a63f1d !important;
+  border-color: #a63f1d !important;
+}
+.rf-pdp-cta:disabled,
+.rf-pdp-sticky button:disabled {
+  background: #b9b6b0 !important;
+  border-color: #b9b6b0 !important;
+  color: #fff !important;
+}
+
+/* 7 — talle elegido en la ficha: fondo claro y borde marcado */
+.rf-pdp-size.is-active {
+  background: var(--paper-0) !important;
+  border-color: var(--ink) !important;
+  color: var(--ink) !important;
+  box-shadow: inset 0 0 0 1px var(--ink) !important;
+}
+
+/* 8 y 9 — menú en celular */
+.rf-mseg button.is-active {
+  background: var(--paper-0) !important;
+  color: var(--ink) !important;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .16) !important;
+}
+.rf-mbtn-dark {
+  background: var(--paper-0) !important;
+  border: 1px solid var(--ink) !important;
+  color: var(--ink) !important;
+}
+
+/* 10 — la barrita FIT tenía un cuadradito negro; queda igual de visible
+   pero en óxido, para no sumar otro bloque negro */
+.rf-pdp-fit-track span { background: var(--ember) !important; }
+
+
+/* ============================================================
+   FIX: el menú heredaba el blanco de la cabecera y quedaba
+   invisible sobre las tarjetas claras
+   ============================================================ */
+
+.rotten-menu,
+.rotten-menu p,
+.rotten-menu span,
+.rotten-menu li,
+.rotten-menu strong,
+.rotten-menu a,
+.rotten-menu button {
+  color: var(--ink) !important;
+}
+
+/* logo SKUL y la X del menú (dentro del menú, no en la cabecera) */
+.rotten-menu .rotten-logo { color: var(--ink) !important; }
+.rotten-menu .rf-mclose { color: var(--ink) !important; }
+
+/* títulos desplegables y sus sub-items */
+.rotten-menu .rf-mgroup-head { color: var(--ink) !important; }
+.rotten-menu .rf-mgroup-head svg { color: var(--ink) !important; }
+.rotten-menu .rf-mgroup-sub button { color: var(--ink-soft) !important; }
+
+/* los dos botones de abajo y la fila de envíos */
+.rotten-menu .rf-mbtn-dark,
+.rotten-menu .rf-mbtn-light { color: var(--ink) !important; }
+.rotten-menu .rf-mcountry { color: var(--ink-soft) !important; }
+.rotten-menu .rf-mcountry svg { color: var(--ink-soft) !important; }
+
+/* selector TIENDA / NO-RESTOCK */
+.rotten-menu .rf-mseg button { color: var(--ink-soft) !important; }
+.rotten-menu .rf-mseg button.is-active { color: var(--ink) !important; }
+
+/* el panel de escritorio también queda a salvo */
+.rotten-menu .rf-megamenu-col-title { color: var(--muted) !important; }
+.rotten-menu .rf-megamenu-sublist button { color: var(--ink-soft) !important; }
+
+/* En No-Restock la cinta propia de la sección ya cuenta la historia:
+   sacamos la del encabezado para que no se apilen dos franjas. */
+.skul-root.page-noreastock .rotten-announcement { display: none !important; }
+.rotten-ticker.paused { animation-play-state: paused; }

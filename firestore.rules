@@ -1,0 +1,328 @@
+// ============================================================================
+// REGLAS DE SEGURIDAD DE FIRESTORE — SKUL
+// ============================================================================
+//
+// QUÉ ES ESTE ARCHIVO: es lo que decide, en el servidor de Google, quién
+// puede leer y quién puede escribir cada documento de la base. No es código
+// del sitio: corre en Google, después de la petición. Si la regla dice que
+// no, la operación se rechaza con "permission-denied" y no hay nada que hacer
+// del lado del frontend para savinglo.
+//
+// POR QUÉ ES EL ARCHIVO MÁS IMPORTANTE DE ESTOS: el panel de admin ESCRIBE en
+// esta base. Si acá hay un error, el admin no guarda nada y el error se
+// "se tragó" abajo del catch, con lo cual el síntoma es "no pasa nada" en vez
+// de un mensaje. Lo mismo al revés: una regla demasiado abierta deja escribir
+// precios o saldos a cualquiera.
+//
+// CÓMO SE EJECUTA: nada. Se despliega solo con la base:
+//     firebase deploy --only firestore:rules
+// Para probarlo SIN tocar producción:
+//     firebase emulators:exec --only firestore "node scripts/test-rules.mjs"
+// (o `npm run test:rules`), que levanta un emulador en memoria y corre las
+// pruebas de scripts/test-rules.mjs contra estas mismas reglas.
+//
+// CÓMO SE LEE UN match: `match /coleccion/{id}` es "esta regla aplica a los
+// documentos de esta colección". Lo que está adentro son los `allow`, que se
+// evalúan de a uno: con que uno de los `if` dé true, Firestore lo permite. Un
+// documento al que ningún match llega queda denegado (el "deny por defecto"):
+// no hace falta escribir un allow para cerrar, hay que escribirlo para abrir.
+//
+// EL CRITERIO GENERAL DE ESTE ARCHIVO, en una línea:
+//   - PÚBLICO para leer: /products, /settings/site, el tracking de un pedido
+//     concreto, y el `get` de un cupón o de una gift card por código.
+//   - SOLO ADMIN para leer o escribir: /orders, los listados de /coupons y
+//     /giftCards, /newsletter, /arrepentimientos, y cualquier escritura en
+//     general.
+//   - SOLO el WORKER: puede leer /orders y /newsletter, para armar el aviso de
+//     Telegram; no le corresponde escribir por las reglas.
+//   - PÚBLICO para escribir, pero CONTENIDO CONTROLADO: /newsletter y
+//     /arrepentimientos, donde cualquiera manda su solicitud pero las reglas
+//     dicen exactamente qué campos y de qué tipo se pueden guardar.
+//
+// POR QUÉ "LECTURA PÚBLICA" NO ES "ESCRITURA PÚBLICA": son permisos separados.
+// `allow read` y `allow write` se evalúan por separado, así que poder ver el
+// catálogo no implica poder cambiarlo. Y `get` es más chico que `read`: `get`
+// es leer UN documento que ya sabés cuál es (por ID), `list` es traerse la
+// colección entera. Por eso /coupons y /giftCards abren el `get` y no el
+// `list`: el comprador necesita comprobar un código, pero no necesita (ni debe
+// poder) bajarse todos.
+// ============================================================================
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================================
+    // QUIÉN ES EL ADMIN
+    // ============================================================
+    // Único usuario de Firebase Authentication que puede escribir.
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == "Ii35YTENxZePLzloJkaC99AL5rn1";
+    }
+
+    // El Cloudflare Worker entra con una cuenta de servicio de Firebase,
+    // no con un usuario. Se lo reconoce para poder LEER los documentos
+    // privados (pedidos y suscripciones) y armar el mensaje de Telegram.
+    //
+    // OJO: si esto no coincide con el "client_email" de la cuenta de
+    // servicio cargada en el Worker, los avisos de Telegram dejan de
+    // llegar. Ojo también: la cuenta de servicio ya puede ESCRIBIR en
+    // cualquier lado (las reglas no se le aplican), así que en la
+    // práctica estas dos líneas frenan únicamente a un humano.
+    //
+    // En concreto: el email se compara con `request.auth.token.email`, o
+    // sea con el email que viene DENTRO del token de Firebase de la cuenta
+    // de servicio. `request.auth` es el "quién está llamando": si no hay
+    // sesión, es null, y por eso todos los isAdmin()/isWorker() arrancan con
+    // `request.auth != null` (comparar contra null sin chequearlo antes
+    // revienta la regla).
+    function isWorker() {
+      return request.auth != null
+        && request.auth.token.email == "firebase-adminsdk-fbsvc@skullt.iam.gserviceaccount.com";
+    }
+
+    // ============================================================
+    // AJUSTES DEL SITIO
+    // ============================================================
+    // Deja pasar a cualquier visitante, sin login y sin condición. Es el
+    // mensaje de "la tienda está cerrada" que aparece arriba de todo; no
+    // tiene nada que ver con datos personales.
+    match /settings/site {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // PRODUCTOS — catálogo público, escritura solo admin
+    // ============================================================
+    // El catálogo se lee público (es la tienda), pero NO se puede
+    // escribir sin ser admin.
+    //
+    // Antes el checkout escribía el stock desde el navegador, así que
+    // las reglas dejaban pasar un "update" anónimo que solo pudiera
+    // BAJAR números. Eso seguía siendo una puerta abierta: cualquiera
+    // podía, desde la consola del navegador, dejar cualquier talle en 0
+    // (tirar abajo la tienda) o inventarse talles que no existen.
+    //
+    // Ahora el descuento de stock lo hace el Cloudflare Worker dentro
+    // de la misma operación atómica que crea el pedido (usando la
+    // cuenta de servicio, que no pasa por estas reglas), así que acá
+    // alcanza con permitir escrituras al admin.
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // CUPONES — "get" público (comprobar un código), "list" solo admin
+    // ============================================================
+    // El comprador puede comprobar si el cupón que escribió es válido,
+    // así que "get" (documento exacto) es público. "list" sigue siendo
+    // solo del admin: sin eso, cualquiera podría bajarse TODOS los
+    // códigos de cupones con una sola consulta y regalar descuentos.
+    //
+    // Con "get" público se lee la definición del cupón (tipo, valor,
+    // alcance, cuántos usos lleva) y solo si ya se tiene el código
+    // escrito — que es el mismo caso en el que el cliente lo usaría.
+    match /coupons/{code} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // GIFT CARDS — "get" público (comprobar un código), "list" solo admin
+    // ============================================================
+    // Igual que los cupones: el comprador puede comprobar el código que
+    // escribió (get de un documento exacto), pero la lista completa —que
+    // es justamente donde están TODOS los saldos— es solo del admin.
+    //
+    // El descuento del saldo NO lo hace esta regla: lo hace el Worker con
+    // la cuenta de servicio dentro del mismo commit que crea el pedido
+    // (que no pasa por estas reglas). Por eso acá no hace falta abrir
+    // ninguna escritura anónima: "get" es de solo lectura.
+    match /giftCards/{code} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // PEDIDOS — documento PRIVADO: ni el visitante ni ningún usuario
+    // con sesión lo lee; solo el panel y el Worker
+    // ============================================================
+    // Acá van nombre, teléfono, dirección, medio de pago y el detalle
+    // del pedido. Solo los lee el admin (panel) y el Worker (que
+    // arma el aviso de Telegram).
+    //
+    // El seguimiento del comprador va por /orderTracking, que es
+    // público pero NO tiene datos personales.
+    match /orders/{orderId} {
+      allow get: if isAdmin() || isWorker();
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // SEGUIMIENTO PÚBLICO — "get" abierto, "list" cerrada
+    // ============================================================
+    // NO contiene nombre, teléfono, dirección ni medio de pago: solo
+    // los productos, el total, el estado y el código de Correo.
+    //
+    // El cliente puede consultar el documento cuyo código conoce
+    // (por eso "get" es público) pero no puede descargar la lista
+    // completa, y no puede crear ni modificar nada.
+    match /orderTracking/{orderId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ============================================================
+    // NEWSLETTER — cualquiera se suscribe, pero con campos exactos;
+    // leer la lista es solo del admin y del Worker
+    // ============================================================
+    //
+    // Solo se guarda el email, el consentimiento, de dónde vino y la
+    // fecha. NO hay datos de pedidos ni de pagos acá.
+    //
+    // Cualquiera puede suscribirse (sin cuenta ni login), pero las
+    // reglas controlan QUÉ se puede guardar: no se puede colar ningún
+    // campo extra ni un email que no tenga forma de email, para que
+    // nadie use esta colección de casillero.
+    //
+    // Leer la lista es exclusivo del admin y del Worker de Telegram.
+    match /newsletter/{subscriberId} {
+      allow create: if isValidNewSubscriber(request.resource.data);
+      allow list: if isAdmin() || isWorker();
+      allow get: if isAdmin() || isWorker();
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- Suscripción al newsletter ----
+    //
+    // Solo se admite un documento con EXACTAMENTE estos campos y con
+    // tipos correctos. Si alguien intenta guardar cualquier otra cosa
+    // (o un email vacío / enorme), Firestore lo rechaza.
+    //
+    // Cómo se lee esto, palabra por palabra:
+    //   `request.resource.data` es el documento tal como quedaría DESPUÉS
+    //   de la escritura (no el que ya estaba): en un create es el nuevo,
+    //   en un update es el resultado final.
+    //   `hasAll` exige que estén las cuatro claves; `hasOnly` que no haya
+    //   ninguna más. Con las dos juntas el documento tiene que ser
+    //   exactamente ese set: ni un campo de menos ni uno de más.
+    //   `is string` / `is timestamp` son chequeos de TIPO: el que escribe
+    //   no puede mandar un número donde va un texto.
+    //   `size()` es el largo del texto.
+    //   `matches()` es una expresión regular: acá pide algo con @ y con
+    //   un punto después, o sea "forma de email". No es un validador real
+    //   (no usa las reglas completas de email), alcanza para que la
+    //   colección no se llene de basura.
+    //   `data.consent == true` obliga a que quede registrado el
+    //   consentimiento como sí o como no: nunca se puede guardar una
+    //   suscripción "sin decidir".
+    function isValidNewSubscriber(data) {
+      return data.keys().hasAll(['email', 'consent', 'source', 'createdAt'])
+        && data.keys().hasOnly(['email', 'consent', 'source', 'createdAt'])
+        && data.email is string
+        && data.email.size() > 4
+        && data.email.size() <= 120
+        && data.email.matches('.*@.*\\..*')
+        && data.consent == true
+        && data.source is string
+        && data.source.size() > 0
+        && data.source.size() <= 40
+        && data.createdAt is timestamp;
+    }
+
+    // ============================================================
+    // SOLICITUDES DE ARREPENTIMIENTO — es un derecho legal:
+    // cualquiera manda una, pero con los campos acotados
+    // ============================================================
+    // El "botón de arrepentimiento" de /boton-de-arrepentimiento escribe
+    // acá. ANTES NO EXISTÍA ESTA REGLA: Firestore deniega por defecto lo
+    // que no matchea, así que el formulario fallaba siempre con
+    // permission-denied, el catch se lo tragaba y el visitante no veía ni
+    // un mensaje. La solicitud nunca se guardaba.
+    //
+    // Mismo criterio que el newsletter: cualquiera puede enviar una (es un
+    // derecho legal, no puede pedir login), pero las reglas controlan QUÉ
+    // se puede guardar para que la colección no sea un buzón libre.
+    match /arrepentimientos/{solicitudId} {
+      allow create: if isValidNewArrepentimiento(request.resource.data);
+      allow list: if isAdmin();
+      allow get: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- Solicitud de arrepentimiento ----
+    //
+    // Solo se admite un documento con EXACTAMENTE estos campos, todos
+    // string y acotados. El motivo es el único que puede venir largo, y
+    // aun así tiene techo: sin esto, cualquiera podría escribir 10 MB de
+    // texto y pagarse el costo de lectura/escritura de la colección.
+    //
+    // Misma lógica de hasAll/hasOnly/is/size que arriba, con dos diferencias:
+    // `size()` sin número significa "mayor o igual que" (por eso
+    // `data.nombre.size() >= 2` es "no vacío"), y acá todos los chequeos
+    // son de string porque el formulario manda texto plano.
+    // OJO: `contacto` y `fecha` solo tienen techo, no tienen piso: se
+    // aceptan vacíos. Es deliberado (el formulario no los pide
+    // obligatorios), pero si algún día el aviso de Telegram los imprime
+    // conviene revisarlo: ahí van directo al mensaje.
+    function isValidNewArrepentimiento(data) {
+      return data.keys().hasAll(['pedido', 'nombre', 'contacto', 'fecha', 'motivo', 'createdAt'])
+        && data.keys().hasOnly(['pedido', 'nombre', 'contacto', 'fecha', 'motivo', 'createdAt'])
+        && data.pedido is string
+        && data.pedido.size() <= 60
+        && data.nombre is string
+        && data.nombre.size() >= 2
+        && data.nombre.size() <= 80
+        && data.contacto is string
+        && data.contacto.size() <= 120
+        && data.fecha is string
+        && data.fecha.size() <= 40
+        && data.motivo is string
+        && data.motivo.size() <= 1000
+        && data.createdAt is timestamp;
+    }
+
+    // ============================================================
+    // FIN DEL ARCHIVO — qué queda, y qué queda FUERA
+    // ============================================================
+    //
+    // Las dos llaves que cierran son, de adentro hacia afuera:
+    //   - la de `match /databases/{database}/documents`: todas las reglas
+    //     viven acá adentro. Por eso los nombres de los matches son
+    //     relativos a la raíz ("/products/..." y no "/documents/products/...").
+    //   - la de `service cloud.firestore`: todo lo de arriba es para
+    //     Firestore y nada más.
+    //
+    // COLECCIONES QUE NO TIENEN MATCH ACÁ (y por lo tanto quedan cerradas
+    // para todo el mundo, sin importar quién llame):
+    //   /backups, /tmp, /test, y cualquier otra que se te ocurra crear.
+    //   Es la protección más barata que hay: si creás una colección nueva
+    //   y te olvidás de la regla, nace cerrada. Y si el frontend empieza a
+    //   comerse un permission-denied, casi siempre es que falta el match.
+    //
+    // LO QUE ESTÁ MÁS PERMISIVO DE LO NECESARIO, PARA REVISAR CUANDO QUIERAS
+    // (no lo cambié: son decisiones del proyecto, pero quedan anotadas):
+    //   1) /newsletter y /arrepentimientos: cualquiera puede hacer `create`
+    //      sin límite de frecuencia. Firestore no tiene rate limit por
+    //      documento: con el mismo código se pueden mandar miles de
+    //      solicitudes distintas. Si se convierte en problema, la salida
+    //      es la de siempre (App Check o un Worker que verifique), no una
+    //      regla.
+    //   2) El `get` público de /coupons y /giftCards: permite leer un
+    //      documento probando códigos al azar (SKUL-XXXXXX son ~1.200
+    //      millones de combinaciones, así que en la práctica no sirve para
+    //      barrer, pero técnicamente es un oráculo de existencia). El
+    //      pedido real es: ese `get` lo necesita el checkout del navegador
+    //      para validar el código antes de cobrar.
+    //   3) `rules_version = '2'` está arriba del `service`, como corresponde.
+    //      Recordá que subir la versión activa reglas más estrictas, así que
+    //      cualquier cambio más restrictivo hay que probarlo en emulador
+    //      antes de deployar.
+  }
+}

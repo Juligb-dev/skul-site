@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!--
+    Dominio del sitio. Si algún día se cambia, hay que cambiarlo
+    acá en las 14 líneas de abajo (el mismo dominio aparece en
+    src/data/config.js y en los textos legales).
+  -->
+  <url><loc>https://skullt.web.app/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>https://skullt.web.app/catalogo</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://skullt.web.app/no-restock</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://skullt.web.app/outlet</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://skullt.web.app/nosotros</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://skullt.web.app/contacto</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>https://skullt.web.app/terminos-y-condiciones</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/politica-de-privacidad</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/politica-de-cookies</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/cambios-y-devoluciones</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/politica-de-envios</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/boton-de-arrepentimiento</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/accesibilidad</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://skullt.web.app/informacion-legal</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+</urlset>
+<!--
+  Los productos individuales (/producto/ID) no están listados acá
+  porque cambian todo el tiempo (entran y salen del catálogo) y este
+  archivo es estático. No hace falta: como ahora cada producto tiene
+  una URL real y hay links internos desde /catalogo hacia cada uno,
+  Google los va a encontrar solo, siguiendo esos links.
+  Si más adelante querés que también estén listados acá, se puede
+  armar un pequeño script que genere este archivo leyendo los
+  productos de Firestore antes de cada build.
+-->
