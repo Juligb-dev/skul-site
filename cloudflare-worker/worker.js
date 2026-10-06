@@ -1320,6 +1320,10 @@ const ZONAS_FIJAS = {
 const MEDIOS_PAGO = ["debito", "credito", "transferencia", "efectivo"];
 const TIPOS_ENVIO = ["domicilio", "sucursal"];
 
+// Descuento por pagar en efectivo y retirar en el local (10%). Solo aplica
+// a compras con retiro: en Correo Argentino el pago no cambia el precio.
+const EFECTIVO_DESCUENTO = 0.1;
+
 /* ============================================================
    GIFT CARDS
    ------------------------------------------------------------
@@ -1374,9 +1378,29 @@ function aplicaCoupon(cupon, producto, importe) {
 /**
  * Deja el código como tiene que estar para buscar el documento:
  * sin espacios y en mayúsculas (la gente lo escribe "skul abc123").
+ *
+ * OJO — el mismo fix que tiene el frontend (normGiftCardCode en
+ * src/utils/giftcards.js): escribir "skul abc123" con espacios borra los
+ * espacios pero deja el prefijo pegado y sin el guion ("SKULABC123"),
+ * y hay que reponer el guion, porque el código ES el ID del documento
+ * en Firestore. Si faltara este paso, la validación del checkout lo
+ * aceptaría y el Worker lo rechazaría: dos verdades distintas para el
+ * mismo código. El orden es siempre el mismo: quitar espacios y subir a
+ * mayúsculas, y recién después decidir si falta el guion.
  */
 function normGiftCard(codigo) {
-  return String(codigo || "").replace(/\s+/g, "").toUpperCase();
+  const limpio = String(codigo || "").replace(/\s+/g, "").toUpperCase();
+  // "SKULABC123": empieza con el prefijo sin el guion, no tiene ningún
+  // guion y tiene la medida exacta, así que falta el guion del medio, no
+  // un prefijo distinto.
+  const prefijoSinGuion = GIFT_CARD_PREFIJO.replace("-", "");
+  const leFaltaElGuion =
+    limpio.startsWith(prefijoSinGuion) &&
+    limpio.length === GIFT_CARD_PREFIJO.length - 1 + GIFT_CARD_SUFIJO_LEN &&
+    !limpio.includes("-");
+  return leFaltaElGuion
+    ? `${GIFT_CARD_PREFIJO}${limpio.slice(GIFT_CARD_PREFIJO.length - 1)}`
+    : limpio;
 }
 
 /**
@@ -1455,6 +1479,11 @@ async function handleCreateOrder(body, env, cors) {
   // `zona` es el id de la zona de precio fijo, o null cuando el envío es
   // por Correo Argentino (que no tiene precio fijo: se cotiza en MiCorreo).
   const esCorreo = zoneId === "correo";
+  // Efectivo con retiro en el local: el único caso con descuento fijo. Se
+  // define acá, arriba de todo, porque el cupón porcentual tiene que saber
+  // que su base ya viene descontada con este 10% (no se aplica un % a
+  // plata que de todas formas no se paga).
+  const pagoEfectivoLocal = payMethod === "efectivo" && !esCorreo;
   const zona = ZONAS_FIJAS[zoneId] ? zoneId : null;
   if (!zona && !esCorreo) {
     problemas.push("Método de envío inválido.");
@@ -1645,10 +1674,17 @@ async function handleCreateOrder(body, env, cors) {
         0
       )
     : 0;
+  // El factor del efectivo (solo para cupones PORCENTUALES): el % se
+  // calcula sobre lo que el cliente va a pagar en serio (ya con el 10% de
+  // efectivo descontado), no sobre el subtotal completo. Sin esto,
+  // efectivo 10% + cupón 20% sumaban 30% en vez de "10% y después 20% de
+  // lo que queda" (28%). El cupón FIJO no se toca: son pesos duros, el
+  // descuento del efectivo no le reduce el valor.
+  const factorCuponEfectivo = pagoEfectivoLocal ? 1 - EFECTIVO_DESCUENTO : 1;
   const cuponDescuento = !cupon
     ? 0
     : cupon.type === "percent"
-      ? Math.min(Math.round((baseCupon * (Number(cupon.value) || 0)) / 100), baseCupon)
+      ? Math.min(Math.round((baseCupon * factorCuponEfectivo * (Number(cupon.value) || 0)) / 100), baseCupon)
       : Math.min(Number(cupon.value) || 0, baseCupon);
 
   // ---- 3b) Gift card, validada contra el documento real ----
@@ -1740,13 +1776,15 @@ async function handleCreateOrder(body, env, cors) {
   }
 
   // ---- 5) Descuentos y total ----
-  // El 10% es el único descuento fijo (pago en efectivo y NO por Correo,
-  // que en el checkout va deshabilitado).
-  const descuento = payMethod === "efectivo" && !esCorreo ? Math.round(subtotal * 0.1) : 0;
+  // El único descuento fijo es el 10% por pagar en efectivo y retirar en
+  // el local (en Correo el pago no cambia el precio, y en el checkout el
+  // efectivo va deshabilitado para envío).
+  const descuento = pagoEfectivoLocal ? Math.round(subtotal * EFECTIVO_DESCUENTO) : 0;
 
-  // ORDEN DE LOS DESCUENTOS: primero el cupón, después la gift card.
-  // O sea, la gift card se aplica sobre lo que queda después del cupón
-  // (y del 10% efectivo), nunca sobre el subtotal completo.
+  // ORDEN DE LOS DESCUENTOS: primero el efectivo y el cupón, después la
+  // gift card. O sea, la gift card se aplica sobre lo que queda después
+  // del 10% efectivo y del cupón (nunca sobre el subtotal completo), y el
+  // cupón porcentual ya vino calculado sobre la base sin el 10% efectivo.
   // El envío queda afuera: la gift card descuenta prendas, no el flete.
   const baseDescontable = Math.max(0, subtotal - descuento - cuponDescuento);
   const giftCardDescuento = giftCard ? Math.min(giftCardSaldo, baseDescontable) : 0;

@@ -26,9 +26,14 @@
  *  - El "es-AR" es el locale (el dialecto de formato): decide dónde
  *    va el separador de miles y el de decimales. Sin esto, un
  *    usuario de Argentina vería "12,000" en vez de "12.000".
- *  - El `|| 0` es el escudo contra valores que no son números:
- *    cuando algo viene undefined, null o un objeto vacío desde
- *    Firestore, mostro "$0" en vez de "$NaN" o romper el render.
+ *  - El `Number.isFinite` es el escudo contra valores que no son
+ *    números: cuando algo viene undefined, null o un objeto vacío
+ *    desde Firestore, muestra "$0" en vez de "$NaN" o romper el
+ *    render. Ojo: el `|| 0` solo no alcanzaba, porque `Number({})`
+ *    es NaN y un objeto vacío es "truthy" para `||`.
  *  - Number() por las dudas: algunos totales llegan como texto
  *    (vienen de Cloudinary/Worker o de un campo editable del admin). */
-export const fmt = (n) => "$" + Number(n || 0).toLocaleString("es-AR");
+export const fmt = (n) => {
+  const num = Number(n);
+  return "$" + (Number.isFinite(num) ? num : 0).toLocaleString("es-AR");
+};

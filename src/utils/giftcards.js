@@ -39,14 +39,29 @@ import {
 /* Helpers puros de gift cards (sin Firebase): los usan el panel de
    admin, la página pública y el checkout. */
 
+/** ¿El código quedó como "SKULABC123" (le falta el guion del medio)? */
+const nuevoPrefijoSinGuion = (limpio) =>
+  limpio.startsWith(GIFT_CARD_PREFIJO.replace("-", "")) &&
+  limpio.length === GIFT_CARD_PREFIJO.length - 1 + GIFT_CARD_SUFIJO_LEN &&
+  !limpio.includes("-");
+
 /** El código tal como tiene que estar guardado: sin espacios y en
  *  mayúsculas (la gente lo escribe "skul abc123" o "skul-abc123").
  *
  *  Existe porque el código es el ID del documento en Firestore: si
  *  "SKUL-ABC" y "skul abc" se guardaran con distinta forma, serían
  *  dos gift cards distintas y una de las dos no encontraría nunca.
- *  Normalizo siempre ANTES de leer o de escribir. */
-export const normGiftCardCode = (code) => String(code || "").replace(/\s+/g, "").toUpperCase();
+ *  Normalizo siempre ANTES de leer o de escribir.
+ *
+ *  OJO — detalle que parece menor y no lo es: primero se borran los
+ *  espacios y después, si el resultado quedó sin el guion ("SKULABC123",
+ *  que es lo que sale de escribir "skul abc123"), se repone el guion.
+ *  Sin ese segundo paso el checkout le decía "código inválido" a
+ *  quien había tipeado el código bien, solo que con un espacio. */
+export const normGiftCardCode = (code) => {
+  const limpio = String(code || "").replace(/\s+/g, "").toUpperCase();
+  return nuevoPrefijoSinGuion(limpio) ? `${GIFT_CARD_PREFIJO}${limpio.slice(GIFT_CARD_PREFIJO.length - 1)}` : limpio;
+};
 
 /** Formato SKUL-XXXXXX.
  *

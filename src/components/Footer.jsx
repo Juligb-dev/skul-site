@@ -24,9 +24,9 @@ export default function Footer({ nav, goCatalog }) {
   // política de privacidad (que va como texto, no como casilla).
   const [consent, setConsent] = useState(false);
   // Un solo estado para toda la máquina del formulario: idle (normal),
-  // guardando (spinner), listo, repetido (ya estaba en la lista) o
-  // error. Con una variable sola el render es obvio.
-  const [estado, setEstado] = useState("idle"); // idle | guardando | listo | repetido | error
+  // guardando (spinner), listo, repetido (ya estaba en la lista),
+  // invalido (el correo no parece un correo) o error (falló de verdad). Con una variable sola el render es obvio.
+  const [estado, setEstado] = useState("idle"); // idle | guardando | listo | repetido | invalido | error
   // Armo los links de contacto una vez y los reutilizo en las dos
   // columnas donde aparecen.
   const waLink = `https://wa.me/${WHATSAPP_NUMBER}`;
@@ -56,6 +56,15 @@ export default function Footer({ nav, goCatalog }) {
       setEmail("");
       setConsent(false);
     } catch (err) {
+      // El correo no tiene forma de correo. Se corta en el hook, ANTES de
+      // tocar Firestore, porque si llegaba ahí las reglas lo rechazaban con
+      // el mismo error de un correo repetido y el visitante quedaba leyendo
+      // "ya estabas en la lista" cuando ni siquiera había escrito un email.
+      if (err?.code === "invalid-email") {
+        setEstado("invalido");
+        return;
+      }
+
       // El ID del documento es el email: si ya estaba en la lista,
       // Firestore lo rechaza y en realidad ya está suscrito.
       if (err?.code === "already-exists") {
@@ -106,6 +115,11 @@ export default function Footer({ nav, goCatalog }) {
                 <input
                   type="email"
                   required
+                  // aria-label además del placeholder: el placeholder se
+                  // borra apenas se escribe, y un lector de pantalla tiene
+                  // que seguir sabiendo qué campo es este cuando ya tiene
+                  // texto adentro.
+                  aria-label="Correo electrónico"
                   placeholder="Correo electrónico"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -139,6 +153,11 @@ export default function Footer({ nav, goCatalog }) {
               {/* Avisos de error y de "guardando" debajo del formulario. */}
               {estado === "guardando" && (
                 <p className="mono tracked" style={{ fontSize: 11, margin: "8px 0 0" }}>Guardando…</p>
+              )}
+              {estado === "invalido" && (
+                <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#ffb4a2" }}>
+                  Ese correo no parece un correo. Revisalo y volvé a intentar.
+                </p>
               )}
               {estado === "error" && (
                 <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#ffb4a2" }}>

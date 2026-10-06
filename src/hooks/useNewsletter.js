@@ -36,6 +36,18 @@ import { db } from "../firebase.js";
 
 const NEWSLETTER_COL = collection(db, "newsletter");
 
+/** Un correo tiene que parecer un correo.
+ *
+ *  Misma idea que el `matches('.*@.*\\..*')` de las reglas, pero del lado
+ *  del navegador y con el detalle de que no puede haber espacios. Sirve
+ *  para no mandar a Firestore un documento que las reglas van a rechazar:
+ *  como el error de las reglas es un `permission-denied` (el mismo que
+ *  devuelve un correo que YA estaba), un email inválido terminaba
+ *  diciéndole al visitante "ese correo ya estaba en la lista", que es
+ *  falso y confunde. Validando acá, cada caso tiene su propio mensaje.
+ */
+const EMAIL_BIEN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 /**
  * Guarda una suscripción al newsletter.
  *
@@ -57,6 +69,16 @@ export async function subscribeToNewsletter(email) {
   // " Ana@Ejemplo.COM " y "ana@ejemplo.com" sean el mismo documento y el
   // mismo suscriptor (con las mayúsculas sueltas, se duplicarían).
   const limpio = String(email || "").trim().toLowerCase();
+
+  // Antes de tocar la base. Un correo vacío o sin arroba no es un caso
+  // raro: es lo que pasa si el visitante aprieta "suscribirse" sin
+  // escribir nada. Acá se corta con un error que el pie de página puede
+  // distinguir del "ya estaba en la lista" y del "no pudimos guardar".
+  if (!EMAIL_BIEN.test(limpio) || limpio.length > 120) {
+    const error = new Error("El correo no tiene un formato válido.");
+    error.code = "invalid-email";
+    throw error;
+  }
 
   // No se consulta antes si el documento ya existe: las reglas dejan
   // leer la colección solo al admin y al Worker, así que ese getDoc

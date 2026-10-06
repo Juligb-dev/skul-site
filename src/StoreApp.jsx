@@ -85,6 +85,7 @@ import { checkGiftCard, giftCardCarritoItem } from "./hooks/useGiftCards.js";
 // El redondeo del monto de una gift card (lo usa la página de gift cards
 // y el carrito, para que el número quede en pesos enteros dentro del rango).
 import { redondearMontoGiftCard } from "./utils/giftcards.js";
+import { calcularResumenPrecios } from "./utils/precios.js";
 import { createOrder } from "./hooks/useOrders.js";
 // La tabla de rutas: el mapa entre el estado de página y la URL real
 // (pageToPath, parsePath y pageTitle).
@@ -482,7 +483,6 @@ export default function StoreApp() {
   // "10% off" de que elija el medio de pago que quiera. Por eso se
   // calcula acá con un condicional simple y no con una tabla.
   const paysCash = payMethod === "efectivo";
-  const discount = paysCash ? Math.round(subtotal * 0.1) : 0;
 
   // Base sobre la que se aplica el cupón. Un cupón puede ser de tres
   // alcances ("scope"):
@@ -506,36 +506,28 @@ export default function StoreApp() {
     }
     return subtotal;
   }, [cart, appliedCoupon, subtotal]);
-  // El descuento en sí: en porcentaje sobre la base, o un monto fijo
-  // recortado a la base (un cupón de $5000 nunca descuenta $5000 de un
-  // carrito de $2000, y mucho menos genera saldo a favor).
-  const couponDiscount = appliedCoupon
-    ? appliedCoupon.type === "percent"
-      ? Math.round(eligibleSubtotal * (appliedCoupon.value / 100))
-      : Math.min(appliedCoupon.value, eligibleSubtotal)
-    : 0;
+
+  // El resumen completo sale de UNA función pura (src/utils/precios.js),
+  // la misma cuenta que hace el Worker al confirmar el pedido. El orden
+  // de los descuentos vive ahí, con su test (precios.test.js) pinando
+  // cada número; si se cambia, tiene que cambiar en el Worker también.
+  const { discount, couponDiscount, giftCardDiscount, total } = useMemo(
+    () =>
+      calcularResumenPrecios({
+        subtotal,
+        paysCash,
+        appliedCoupon,
+        eligibleSubtotal,
+        appliedGiftCard,
+        shippingCost,
+      }),
+    [subtotal, paysCash, appliedCoupon, eligibleSubtotal, appliedGiftCard, shippingCost]
+  );
+
   // Si el cupón es por categoría o por productos y en este carrito no
   // hay nada de eso, el checkout lo muestra como "no aplicable" en vez
   // de fingir que se está descontando algo.
   const couponApplies = !appliedCoupon || appliedCoupon.scope === "all" || eligibleSubtotal > 0;
-
-  // Gift card: mismo orden que en el Worker — primero el cupón, después
-  // la gift card, y el envío nunca entra en la base. Esto es solo la
-  // vista previa del resumen: el descuento que de verdad se descuenta del
-  // saldo lo calcula el servidor al confirmar el pedido.
-  //
-  // OJO CON ESTO, que es lo importante: acá NO se toca la base de datos.
-  // El navegador no le resta un peso al `balance` de la gift card ni
-  // suma nada a `usedAmount`; eso lo hace el Worker adentro del mismo
-  // commit atómico que crea el pedido y descuenta el stock. Esta línea
-  // solo le dice al comprador "con esto te alcanza para tanto".
-  const giftCardDiscount = appliedGiftCard
-    ? Math.min(appliedGiftCard.saldo, Math.max(0, subtotal - discount - couponDiscount))
-    : 0;
-  // El total final: los descuentos restan, el envío suma, y el Math.max
-  // impide que una combinación rara (cupón + gift card) haga que el
-  // total sea negativo.
-  const total = Math.max(0, subtotal - discount - couponDiscount - giftCardDiscount) + shippingCost;
   // Cantidad total de prendas (no de líneas): es el número que va en la
   // burbujita del carrito del header.
   const itemCount = cart.reduce((s, i) => s + i.qty, 0);

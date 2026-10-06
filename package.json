@@ -8,6 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "seed:products": "node scripts/seed-products.mjs",
+    "test": "npm run test:web && npm run test:worker",
+    "test:web": "vitest run",
+    "test:worker": "vitest run --config vitest.worker.config.js",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage && vitest run --config vitest.worker.config.js --coverage",
+    "test:all": "npm run test:rules && npm run test && npm run build",
     "test:rules": "firebase emulators:exec --only firestore \"node scripts/test-rules.mjs\""
   },
   "dependencies": {
@@ -18,7 +24,16 @@
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.0"
+    "@vitest/coverage-v8": "^4.1.11",
+    "jsdom": "^25.0.1",
+    "vite": "^6.4.4",
+    "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }

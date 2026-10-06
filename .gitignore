@@ -15,3 +15,6 @@ ui-debug.log
 .wrangler
 # respaldos manuales: son copias de archivos que ya versiona git
 backups/
+
+# salida de cobertura de vitest
+coverage/
