@@ -1537,7 +1537,14 @@ async function handleCreateOrder(body, env, cors) {
         { status: 409, headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
-    throw err;
+    // Cualquier otro error de Firestore va como 503 para que el cliente sepa
+    // que no se guardó nada y reintente. El commit es atómico.
+    return new Response(
+      JSON.stringify({
+        error: "No pudimos guardar el pedido. No se cobró nada y el stock quedó como estaba; probá de nuevo en un momento.",
+      }),
+      { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
+    );
   }
 
   // ---- 7) Aviso a Telegram. Si falla, el pedido ya quedó guardado ----
