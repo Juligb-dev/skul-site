@@ -1375,7 +1375,28 @@ async function handleCreateOrder(body, env, cors) {
 
   if (esCorreo) {
     const peso = itemsNormalizados.reduce((acc, i) => acc + (Number(i.weight) || 400) * i.qty, 0);
-    const cotizacion = await cotizarCorreo(env, correoQuote.postalCode, peso);
+    let cotizacion;
+    try {
+      cotizacion = await cotizarCorreo(env, correoQuote.postalCode, peso);
+    } catch (err) {
+      console.error(
+        "[createOrder] No se pudo cotizar con Correo Argentino:",
+        err?.message || err,
+        err?.stack ? `\n${err.stack}` : ""
+      );
+      return new Response(
+        JSON.stringify({
+          error: "No pudimos cotizar el envío con Correo Argentino en este momento. Probá de nuevo en un rato o elegí retiro en el local.",
+        }),
+        { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
+      );
+    }
+    if (cotizacion?.error) {
+      return new Response(
+        JSON.stringify({ error: "No pudimos cotizar el envío con Correo Argentino en este momento. Probá de nuevo en un rato o elegí retiro en el local." }),
+        { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
+      );
+    }
     const precio = cotizacion[correoQuote.type];
     if (precio == null) {
       return new Response(
