@@ -1,54 +1,127 @@
 /**
  * ============================================================================
- * SKUL — CLOUDFLARE WORKER: el backend de confianza de la tienda
+ * OJO — VARIANTE: ¿ESTE ARCHIVO O `worker.js`? LEÉ ESTO PRIMERO
  * ============================================================================
  *
- * QUÉ ES UN CLOUDFLARE WORKER
- * ---------------------------
- * Es un archivo JavaScript que Cloudflare me ejecuta como un servidor, sin
- * que tengas una máquina. No es una página: no es HTML, no tiene un layout.
- * Es una función que corre cuando alguien llama a una URL pública y termina.
- * Lo ejecuto en el runtime de Cloudflare, que es el mismo `fetch` que usan
- * los navegadores, así que puedo hacer pedidos salientes (`fetch`) y criptografía
- * con WebCrypto (`crypto.subtle`), pero NO tengo sistema de archivos y
- * cualquier variable que guarde se pierde cuando el proceso se recicla.
+ * Qué es una variante acá: este archivo y `worker.js` (que está en esta misma
+ * carpeta) son DOS versiones del mismo Worker. Salieron del mismo origen y
+ * los dos andan, pero NO son iguales: uno quedó desactualizado. No son
+ * "el nuevo y el viejo" en el sentido de que uno sea el otro con cambios: son
+ * dos ramas que se fueron tocando por separado.
  *
- * El sitio en cambio es estático (Vite lo compila a archivos sueltos que se
- * suben a Firebase Hosting). Por eso esta lógica va aparte y se despliega con:
+ * Mi conclusión, después de comparar los dos archivos línea por línea, es que
+ * EL VIGENTE ES `worker.js`, NO este. Las tres pruebas:
  *
- *     cd cloudflare-worker && npx wrangler deploy
+ *   1) `wrangler.jsonc` (el archivo que dice qué se despliega) tiene
+ *      `"main": "worker.js"`. Si hacés `wrangler deploy`, se sube `worker.js`.
+ *   2) El README de esta carpeta, en el paso donde te dice qué pegar en el
+ *      editor de Cloudflare, dice "pegá el contenido del archivo `worker.js`".
+ *   3) El sitio (el frontend) YA LLAMA a una función que acá no existe: en
+ *      src/pages/Legal.jsx el botón de arrepentimiento manda
+ *      `{ action: "notify", tipo: "arrepentimiento", data: {...} }`.
+ *      Esta variante ignora `tipo`, así que cae en la rama de pedidos,
+ *      responde "Falta orderId" y el aviso legal nunca llega a Telegram.
  *
+ * ---------------------------------------------------------------------------
+ * LAS DIFERENCIAS REALES (lo único que NO es idéntico entre los dos)
+ * ---------------------------------------------------------------------------
+ * Todas van en el sentido de que `worker.js` tiene MÁS cosas. Este archivo es,
+ * basically, `worker.js` sin los arreglos que se le fueron haciendo después.
  *
- * POR QUÉ EXISTE ESTE ARCHIVO (lo más importante de todo)
- * -------------------------------------------------------
- * El navegador NO es confiable. Todo lo que corre en la pestaña de quien
- * compra se puede editar desde la consola: si el checkout calculara el precio
- * final, descontara el saldo de una gift card o restara stock desde el
- * cliente, cualquiera podría mandar un total falso.
+ * A) Reintento de token de Firebase vencido (esto es lo más importante).
+ *    `worker.js` mete un helper nuevo, `fsFetch(env, url, init)`, que centraliza
+ *    el `fetch` contra Firestore y, si la respuesta es 401, tira el token
+ *    cacheado y reintenta UNA vez con uno nuevo. Acá no existe ese helper: cada
+ *    lectura y cada commit pide el token una vez y, si Google dice 401, se
+ *    devuelve el error al cliente tal cual. Consecuencia: un token vencido
+ *    dejaba TODAS las compras en 500 durante hasta 50 minutos (lo que dura el
+ *    cache), en vez de recuperarse solo en el segundo intento.
  *
- * REGLA DE ORO: EN LOS PRECIOS MANDA EL SERVIDOR.
- * El navegador solo manda QUÉ quiere comprar y CÓDIGOS (cupón, gift card).
- * Yo leo los saldos reales del catálogo, calculo el total, descuento y recién
- * ahí creo el pedido. Todo eso pasa adentro de un MISMO commit atómico de
- * Firestore (`documents:commit`), o sea una sola operación que se aplica
- * entera o no se aplica: si dos personas compran la misma gift card al mismo
- * tiempo, una de las dos Transactions falla y se le avisa para que reintente.
- * Ese es el motivo de todo este archivo.
+ * B) Chequeo de que Google devolvió un access_token usable. `worker.js`
+ *    verifica que `data.access_token` sea un string no vacío antes de
+ *    cachearlo. Acá se cachea lo que venga: si Google responde 200 pero sin
+ *    token, el isolate queda guardando `undefined` y todo el día siguiente
+ *    responde 401 -> 500.
  *
- * Además de los precios, desde acá también:
- *   - valido que quien llama sea el admin (para firmar subidas de imágenes),
- *   - aviso los pedidos por Telegram sin exponer el token del bot,
- *   - cotizo envíos y listo sucursales con Correo Argentino (MiCorreo),
- *   - y limito cuántas veces me pueden llamar por IP y por acción.
+ * C) Aviso de arrepentimiento. `worker.js` atiende dentro de `notify` el caso
+ *    `tipo: "arrepentimiento"`, limpiando los cinco campos que imprime
+ *    (recorta a 200 caracteres, saca saltos de línea, exige pedido o nombre) y
+ *    devolviendo 502 si Telegram falla. Acá ese camino no existe.
  *
+ * D) Mínimo y paso de las gift cards. Acá: `GIFT_CARD_MIN = 5000` y además
+ *    `GIFT_CARD_PASO = 5000`, o sea que el monto tiene que ser múltiplo de
+ *    $5.000. En `worker.js`: `GIFT_CARD_MIN = 1000` y ningún paso, se acepta
+ *    cualquier entero dentro del rango. Ojo con esto: `src/data/config.js`
+ *    tiene `GIFT_CARD_MIN = 1000`, así que esta variante es más restrictiva
+ *    que el sitio. Con los montos que el sitio ofrece hoy ([10000, 20000,
+ *    30000, 50000, 75000, 100000]) no se rompe nada, pero si mañana agregás
+ *    un monto de $3.000 el sitio lo dejaría comprar y este Worker lo rechaza.
  *
- * CÓMO LLAMAN ACÁ
- * ----------------
- * Un único endpoint: yo ataco la misma URL para todas las acciones. Entra el
- * body, se rutea por el campo "accion" y sale JSON. Un solo endpoint es más
- * simple que mantener veinte rutas, y además me deja poner el rate limit, el
- * CORS y el manejo de errores en un único lugar.
+ * E) Producto apagado desde el panel. `worker.js` rechaza la compra si el
+ *    producto tiene `active === false` (es decir, si el admin lo apagó pero
+ *    alguien tiene el carrito viejo abierto). Acá no se mira ese campo: se
+ *    puede comprar una prenda oculta.
  *
+ * F) Qué productos entran al commit atómico. Acá van TODOS los productos que
+ *    tengan stock cargado, cada uno con su `currentDocument` (precondición).
+ *    `worker.js` mete solo los productos cuyo stock baja DE VERDAD en ese
+ *    pedido. Con esta variante, editar cualquier otra prenda desde el panel
+ *    (subirle una foto, cambiarle el precio) aborta el commit entero y el
+ *    cliente ve un "se agotó el stock" que es mentira.
+ *
+ * G) Cómo se calcula el descuento de un cupón de monto fijo. Acá se llama a
+ *    `aplicaCoupon` por cada línea del carrito, así que un cupón fijo de
+ *    $5.000 descuenta $5.000 POR LÍNEA (5 prendas = $25.000 de descuento).
+ *    `worker.js` calcula primero la "base elegible" y descuenta el monto fijo
+ *    una sola vez por pedido.
+ *
+ * H) Caída de Correo Argentino. `worker.js` envuelve la cotización en un
+ *    try/catch y devuelve un 503 con un mensaje que dice "probá de nuevo o
+ *    elegí retiro en el local". Acá la excepción sube y el cliente recibe el
+ *    500 genérico.
+ *
+ * I) Falla del commit. `worker.js` loguea el error entero y devuelve un 503
+ *    que aclara que no se cobró nada. Acá se relanza el error y el cliente
+ *    recibe el 500 genérico de arriba.
+ *
+ * J) Dato personal en la gift card emitida. Acá, el documento de la gift card
+ *    que se vende guarda `note: <nombre del comprador>`. En `worker.js` ese
+ *    campo NO se guarda, y a propósito: /giftCards tiene lectura pública por
+ *    código (`allow get: if true` en firestore.rules), así que ese nombre
+ *    quedaría a la vista de cualquiera que tuviera el código. Esa es una
+ *    razón de privacidad, no un detalle menor.
+ *
+ * K) Detalle de logging. El catch general de `worker.js` vuelca también
+ *    `err.stack` y `err.status`.
+ *
+ * ---------------------------------------------------------------------------
+ * CÓMO USAR ESTE ARCHIVO, EN CONCRETO
+ * ---------------------------------------------------------------------------
+ * NO lo despliegues: desplegá `worker.js`. Este archivo sirve para dos cosas:
+ * leer los comentarios (los mismos bloques están en `worker.js`) y, si en
+ * algún momento hay que volver atrás, tener el estado anterior a mano.
+ *
+ * Si de verdad llegaras a subirlo, tenés que ser consciente de lo que perdés:
+ * los avisos legales de arrepentimiento dejan de llegar a Telegram, se puede
+ * comprar una prenda que el admin apagó, un cupón de monto fijo descuenta
+ * varias veces, y queda la puerta de que un token de Firebase vencido te
+ * corte las compras por casi una hora.
+ *
+ * ---------------------------------------------------------------------------
+ * CÓMO EJECUTAR / DESPLEGAR (vale para los dos archivos)
+ * ---------------------------------------------------------------------------
+ *   npx wrangler deploy              (desde cloudflare-worker/)
+ *   npx wrangler tail                (ver logs en vivo)
+ * Las variables van en `wrangler.jsonc`; las credenciales, con
+ * `npx wrangler secret put <NOMBRE>`. Todo eso está en el README de la carpeta.
+ * Para quién es este archivo: para el dev del proyecto, que necesita saber
+ * qué hay arriba en producción y qué NO hay que subir.
+ * ============================================================================
+ */
+
+/**
+ * Worker de pedidos + Correo Argentino + suscripciones — SKUL
+ * ------------------------------------------------------------
  * Este Worker hace TRES cosas, según el campo "action" que le
  * manda el sitio en el body (JSON):
  *
@@ -74,74 +147,14 @@
  *     provincia, para que el cliente elija dónde retirar.
  *     Body: { provinceCode }
  *
- * Ojo, la lista de arriba quedó desactualizada en un punto: hoy hay SEIS
- * acciones, no cinco. La sexta es "signUpload", que devuelve la firma para
- * subir una foto de producto a Cloudinary y es la ÚNICA que exige estar
- * logueado como admin (ver handleSignUpload más abajo). Y de paso, "createOrder"
- * ya no es implícita como dice el texto: se pide explícitamente con
- * `{"action":"createOrder"}`; lo único implícito es que si NO viene ninguna
- * acción asumo "notify", para no romper el sitio viejo que mandaba el body
- * sin ese campo.
- *
- *
- * LOS SECRETOS QUE NECESITO (y por qué NO van en el navegador)
- * ----------------------------------------------------------
- * En Cloudflare los secretos se cargan aparte del código, con
- * `wrangler secret put <NOMBRE>` o desde el panel, y me llegan a mí en el
- * segundo parámetro del fetch, el objeto `env`. Eso es justamente lo que los
- * hace seguros: no están en el bundle que se descarga el visitante, así que
- * aunque la persona abra las herramientas de developer no los puede leer.
- *
- * Los que uso (los VALORES no están acá en ningún lado, van en el panel):
- *   - TELEGRAM_BOT_TOKEN   -> el token que te da @BotFather. Con esto firmo
- *                             los mensajes; si viviera en el bundle, cualquiera
- *                             te escribiría en tu Telegram.
- *   - TELEGRAM_CHAT_ID     -> a qué chat mando los avisos.
- *   - FIREBASE_CLIENT_EMAIL y FIREBASE_PRIVATE_KEY -> la cuenta de servicio
- *                             con la que entro a Firestore.
- *   - CORREO_USER y CORREO_PASSWORD -> usuario y contraseña de MiCorreo.
- *   - CLOUDINARY_API_SECRET -> con esto se calcula la firma de las subidas.
- *
- * Y en texto plano (no son secretos) en `wrangler.jsonc`: CORREO_BASE_URL,
- * CORREO_CUSTOMER_ID, CORREO_ORIGIN_POSTAL_CODE, FIREBASE_API_KEY,
- * CLOUDINARY_CLOUD_NAME y CLOUDINARY_API_KEY.
- *
  * Las credenciales de MiCorreo (usuario/contraseña/customerId)
  * viven acá como variables de entorno privadas del Worker.
  * NUNCA van al navegador. Ver README.md de esta carpeta para
  * cómo cargarlas.
  *
- *
- * POR QUÉ EL ACCESS TOKEN DE GOOGLE NO PUEDE IR EN EL FRONT
- * -------------------------------------------------------
- * Para leer `/orders` (que es privada, porque tiene nombre, teléfono y
- * dirección) necesito acreditar quién soy, y en este caso qué soy: una
- * cuenta de servicio. La forma canónica sería usar el SDK de Firebase Admin,
- * que ya sabe armar el JWT por mí, pero ese paquete no se puede empaquetar
- * para el runtime de Workers. Así que lo hago a mano en `firmarJwt`:
- * monto un JWT (un texto con tres partes separadas por puntos: cabecera,
- *ayload y firma) y lo canjeo por un access token de Google.
- *
- * Ese access token es la Contraseña de la tienda: con él se lee y se escribe
- * TODO Firestore sin pasar por las reglas. Si estuviera en el bundle del
- * navegador, cualquiera que abra la consola se lo lleva y nos borra la base
- * entera. Por eso vive acá, en un secret, y por eso me autentico yo solo.
- *
- *
+ * ------------------------------------------------------------
  * CÓMO LEE FIRESTORE (importante)
- * -------------------------------
- * Yo no uso el SDK de Firestore: hablo con la API REST de Firestore, que es
- * la misma API por HTTP que usa la consola de Firebase. Se accede con URLs
- * del tipo:
- *
- *     GET https://firestore.googleapis.com/v1/projects/<proj>/databases/(default)/documents/orders/<id>
- *
- * y los valores NO van como JSON normal: van envueltos, cada uno con la clave
- * de su tipo (un string es `{stringValue:"x"}`, un número es `{integerValue:"5"}`,
- * un objeto es `{mapValue:{fields:{...}}}`). Todo el ida y vuelta de esos
- * envoltorios lo hacen los helpers de esta misma archivo: `fsValue` los arma
- * para escribir, `parseValue`/`parseFirestoreFields` los desenvuelven para leer.
- *
+ * ------------------------------------------------------------
  * El navegador NUNCA le manda al Worker los datos del pedido ni el
  * mail del que se suscribe: solo le pasa el ID. El Worker busca el
  * documento en Firestore por su cuenta y arma el mensaje.
@@ -155,28 +168,51 @@
  * Si todavía no cargaste esas dos variables, el Worker sigue
  * funcionando como antes (lee sin token) y los pedidos con datos
  * públicos se avisan igual. Ver README.md.
+ *
+ * ------------------------------------------------------------
+ * PARA EL QUE TODAVÍA NO TOCÓ UN WORKER
+ * ------------------------------------------------------------
+ * Un Cloudflare Worker es un archivo de JavaScript que se sube a los
+ * servidores de Cloudflare y queda escuchando en una URL pública. No es un
+ * servidor propio: no tenés ni máquina ni terminal, solo este archivo. Cada
+ * vez que alguien le pega a esa URL, Cloudflare corre la función `fetch` de
+ * abajo en algún lado y te devuelve la respuesta. Se usa para guardar
+ * secretos (el token del bot de Telegram, las claves de Cloudinary, la clave
+ * privada de Firebase) que si estuvieran en el JavaScript del sitio cualquiera
+ * los vería al abrir las herramientas de desarrollador del navegador.
+ *
+ * El segundo parámetro de `fetch`, `env`, es el objeto con esas variables
+ * privadas: es la forma de que el código acceda a ellas sin que estén
+ * escritas en el archivo. Cada una se carga por separado y ninguna se puede
+ * leer desde el navegador (eso es lo que hace Wrangler, la CLI de Cloudflare:
+ * `npx wrangler secret put NOMBRE`; las que no son secretas van declaradas en
+ * `wrangler.jsonc`, y ojo que un `deploy` borra del panel cualquier variable
+ * de texto plano que no esté ahí).
+ *
+ * Y como el Worker corre en un runtime que se reinicia cada tanto, la
+ * "memoria" de JavaScript (las variables de módulo, como `golpes` o
+ * `cachedToken`) no sobrevive: es memoria de un isolate, que es una
+ * instancia aislada del runtime. Sirve para cachear algo por un rato, no
+ * para guardar un dato que tenga que durar.
  */
 
-// El id del proyecto de Firebase. Va hardcodeado porque no es secreto:
-// es como el nombre de la base de datos, aparece en la consola igual.
+/** ID del proyecto de Firebase al que escribo. Va fijo porque hay uno solo. */
 const FIREBASE_PROJECT_ID = "skullt";
 
-/**
- * Base de la API de Firestore (REST) que usa la cuenta de servicio.
- * O sea: el prefijo de todas las URLs de lectura/escritura que llamo abajo.
- */
+/** Base de la API de Firestore (REST) que usa la cuenta de servicio. */
+// Por qué REST y no el SDK de firebase: el SDK de Node no corre en el runtime
+// del Worker. La API REST es lo mismo (es la base de datos de Firestore) pero
+// llamada por HTTP con fetch, que es lo único que hay disponible acá.
+// `(default)` es el nombre de la base de datos, y es el único que usamos.
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
-// Rutas de documentos dentro del commit. Dentro de un documents:commit los
-// documentos van con la ruta RELATIVA
-// ("projects/.../documents/..."), no con la URL completa: es la misma ruta que
-// tengo en FS_URL pero sin el dominio, y por eso la guardo aparte.
+// Dentro de un documents:commit los documentos van con la ruta RELATIVA
+// ("projects/.../documents/..."), no con la URL completa.
 const FS_PATH = `projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
 
 /**
- * Los medios de pago que aceptamos, con el nombre lindo para el Telegram.
- * El índice (`debito`, `credito`, ...) es lo que llega del navegador; lo uso
- * para validar y lo paso por este diccionario para no mandar claves crudas
- * al chat.
+ * Cómo se escribe el medio de pago en el aviso de Telegram. La clave es lo
+ * que viene del navegador (ya validado contra MEDIOS_PAGO más abajo), el valor
+ * es lo que se lee lindo.
  */
 const PAY_LABELS = {
   debito: "Débito",
@@ -186,21 +222,9 @@ const PAY_LABELS = {
 };
 
 /**
- * Los headers de CORS (la respuesta que le dice al navegador "dejá que esta
- * página te hable a mí"): CORS es el permiso que le pide el navegador a mi
- * servidor antes de dejarlo hacer un pedido desde otra web. Si no contesto
- * bien, el navegador frena la respuesta y el JS ni se entera de qué pasó.
- *
- *  - Allow-Methods: los verbos que acepto. OPTIONS es el "preflight" que el
- *    navegador manda antes del pedido real para preguntar qué se permite.
- *  - Allow-Headers: qué cabeceras Custom puede mandar el JavaScript del sitio.
- *  - Max-Age: cuánto segundos puede guardar el navegador esta respuesta, así
- *    no pregunta de nuevo en cada pedido.
- *  - Vary: Origin — le digo "esta respuesta depende de quién pregunta", para
- *    que el caché de Cloudflare no le muestre a uno lo que le correspondía a otro.
- *
- * OJO: acá NO va el Access-Control-Allow-Origin, porque el valor depende de
- * qué sitio esté llamando: lo agrega corsHeaders() más abajo.
+ * Cabeceras de CORS (el permiso que le da el navegador para que una página de
+ * otro dominio pueda llamar a este Worker). Se mandan SIEMPRE, y arriba se le
+ * agrega el Access-Control-Allow-Origin cuando el origen está permitido.
  */
 const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -211,12 +235,8 @@ const CORS_HEADERS = {
 
 /* Orígenes desde los que se permite llamar al Worker.
  *
- * El origen es el `protocolo://dominio:puerto` de la página que llama: es lo
- * único que el navegador le garantiza a mi servidor sobre quién pregunta, así
- * que es la única lista blanca que tengo.
- *
  * Con "*" el Worker quedaba disponible desde cualquier web: cualquiera
- * que encontrara esta URL podría gastarte la cuota de MiCorreo o
+ * que encontrara esta URL podía gastarte la cuota de MiCorreo o
  * llenarte el Telegram de pedidos falsos. Ahora el navegador solo lo
  * acepta si la página viene de alguno de estos sitios.
  *
@@ -231,15 +251,12 @@ const ORIGENES_PERMITIDOS = [
 ];
 
 /**
- * Arma los headers de CORS para esta respuesta concreta.
- *
- * Si el que llama es un origen de mi lista, le devuelvo su propio origen (y
- * NO un "*"): el navegador exige que Allow-Origin coincida exactamente con
- * el sitio que pregunta, y además no acepta "*" en pedidos con credenciales.
- * Si el origen no está en la lista, devuelvo los headers sin Allow-Origin, y
- * el navegador bloquea la respuesta por su cuenta. Yo igual atiendo el
- * pedido (no puedo evitarlo desde acá), por eso el rate limit es la barrera
- * de verdad y no el CORS.
+ * Arma las cabeceras de CORS de la respuesta. Si la página que pregunta está
+ * en la lista de orígenes permitidos, devuelvo además el "Access-Control-Allow-
+ * Origin" con ese origen; si no, devuelvo las cabeceras peladas, y el
+ * navegador va a bloquear la respuesta (que es lo que quiero).
+ * El `Origin` es el dominio desde el que viene la petición: lo manda el
+ * navegador y no se puede falsear desde el código.
  */
 function corsHeaders(request) {
   const origin = request?.headers?.get("Origin");
@@ -261,38 +278,7 @@ function corsHeaders(request) {
    pedido usa 1 notify + unas pocas cotizaciones. Y aunque un pedido
    se quede sin avisar, el pedido YA quedó guardado en Firestore y se
    ve en /admin, así que nunca se pierde una venta.
-
-   CÓMO FUNCIONA UN RATE LIMIT EN MEMORIA
-   --------------------------------------
-   Un isolate es una instancia del proceso que me ejecuta. Cloudflare tiene
-   muchas corriendo en paralelo y reparte los pedidos entre ellas, así que
-   este `Map` no es una base: es un cuaderno de la libreta del isolate.
-   Cada entrada dice cuántas veces pasó por acá (cuenta) y hasta cuándo no
-   cuenta más (reiniciaEn).
-
-   LA LIMITACIÓN REAL: este cuaderno se pierde en CADA despliegue (wrangler
-   deploy lo reinicia) y también cada vez que Cloudflare recicla el proceso,
-   que puede pasar en cualquier momento aunque no despleguemos. O sea, un
-   atacante que abre 50 conexiones va a caer en 50 isolates distintos y cada
-   uno le concede su propio cupo completo. Sirve para frenar al que se pasa
-   de miles de golpes seguidos desde una sola conexión, no para un
-   ataque distribuido. Si alguna vez necesito un límite que no se pueda
-   resetear así, el lugar es un KV de Cloudflare o Durable Objects.
    ============================================================ */
-/**
- * Cuántas llamadas por minuto acepta cada acción. Cuanto más caro o más
- * sensible es el endpoint, menos le dejo:
- *
- *  - notify / subscribe: barato para mí (una lectura + un mensaje) pero es la
- *    vía para escribirte en el Telegram, así que va justo.
- *  - rates / agencies: cada llamada le pega a la API de MiCorreo y eso tiene
- *    cuota, así que es el que más se vigila.
- *  - createOrder: el más estricto, porque es el que escribe en Firestore.
- *  - signUpload: más alto porque el panel puede subir varias fotos seguidas
- *    de un tirón y cada firma es un cálculo trivial.
- *
- * ventanaMs: cuándo se reabre la ventana (un minuto).
- */
 const LIMITES = {
   notify: { max: 10, ventanaMs: 60_000 },
   subscribe: { max: 10, ventanaMs: 60_000 },
@@ -305,33 +291,26 @@ const LIMITES = {
   createOrder: { max: 5, ventanaMs: 60_000 },
 };
 
-/**
- * El cuaderno del isolate: clave "acción|IP" -> { cuenta, reiniciaEn }.
- * Vive en el scope del módulo, o sea que lo comparten todos los pedidos que
- * caen en ESTE isolate (y solo este).
- */
+// Contador de golpes, en memoria del isolate. Ver la nota de arriba: es
+// memoria que se pierde cuando el isolate se reinicia, y que además puede
+// estar repartida en varios isolates a la vez. Sirve como freno, no como
+// garantía.
 const golpes = new Map();
 
 /**
- * Suma un golpe y devuelve si esta llamada ya se pasó del límite.
- *
- * La clave combina acción e IP a propósito: si mirara solo la IP, una familia
- * que compra y además cotiza tres envíos se quedaría sin cuota entre las dos
- * cosas. Y si mirara solo la acción, un atacante rotando IPs no frena nada.
- *
- * Devuelve `true` = cortar acá con un 429. `false` = seguí.
+ * ¿Este (acción, IP) ya pasó del límite en la ventana actual?
+ * Si sí, devuelve true y la respuesta va a ser un 429: "esperá un minuto".
+ * Si la acción no está en LIMITES (o sea, una acción nueva que se te olvidó
+ * agregarle), devuelve false y sigue.
  */
 function excedeLimite(accion, ip) {
   const cfg = LIMITES[accion];
-  // Si la acción no tiene límite configurado, no limito nada. (Hoy están
-  // todas, pero prefiero que una acción nueva nazca libre y no bloqueada.)
   if (!cfg) return false;
 
   const ahora = Date.now();
   const clave = `${accion}|${ip}`;
   let reg = golpes.get(clave);
 
-  // Primera llamada, o la ventana anterior ya cerró: arranco una ventana nueva.
   if (!reg || reg.reiniciaEn <= ahora) {
     reg = { cuenta: 0, reiniciaEn: ahora + cfg.ventanaMs };
     golpes.set(clave, reg);
@@ -339,9 +318,6 @@ function excedeLimite(accion, ip) {
   reg.cuenta++;
 
   // Limpieza perezosa para que el Map no crezca sin control.
-  // "Perezosa" quiere decir que no hay un temporizador que lo limpie: cada
-  // tanto que crecen mucho,`tiro` las ventanas ya cerradas y me quedo solo
-  // con las vivas. Es O(n) pero solo pasa cada tanto, así que no importa.
   if (golpes.size > 5000) {
     for (const [k, v] of golpes) {
       if (v.reiniciaEn <= ahora) golpes.delete(k);
@@ -352,38 +328,28 @@ function excedeLimite(accion, ip) {
 }
 
 /**
- * ============================================================================
- * EL ENTRYPOINT: el único fetch que tengo. Acá Cloudflare me pasa cada
- * pedido HTTP que llega a la URL del Worker.
- * ============================================================================
+ * Punto de entrada del Worker: TODO lo que entra por la URL pasa por acá.
  *
- * `request` es el pedido (método, headers, body) y `env` son mis secretos.
- *
- * El orden de las comprobaciones es a propósito y es el que hace que el
- * Worker sea barato ante abuso: primero lo que no cuesta nada (CORS, método,
- * JSON, rate limit) y recién después lo caro (Firestore, MiCorreo, Telegram).
- * Un atacante que se pasa del rate limit no llega a tocar ni una API.
+ * El recorrido es siempre el mismo y va en este orden a propósito:
+ *   1. cabeceras de CORS y método (solo POST; OPTIONS es el pre vuelo que
+ *      hace el navegador antes de mandar datos),
+ *   2. parsear el JSON del body,
+ *   3. cortar por rate limit, antes de tocar cualquier servicio externo,
+ *   4. elegir handler según `action`,
+ *   5. si el handler explota, loguear el detalle acá y devolver un mensaje
+ *      genérico (nunca el error crudo).
  */
 export default {
   async fetch(request, env) {
-    // Los headers de CORS se calculan una sola vez y se reutilizan en todas
-    // las respuestas, incluidas las de error: un error sin CORS tampoco lo
-    // puede leer el navegador y el sitio se quedaría sin saber qué pasó.
     const cors = corsHeaders(request);
 
-    // El preflight de CORS: el navegador manda un OPTIONS vacío antes del
-    // pedido real para preguntar qué se permite. Le respondo 200 sin cuerpo.
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: cors });
     }
-    // Solo hay un verbo. Un GET a esta URL casi seguro es que alguien la
-    // abrió en la barra de direcciones para ver qué hace.
     if (request.method !== "POST") {
       return new Response("Método no permitido", { status: 405, headers: cors });
     }
 
-    // El body tiene que ser JSON.parseable. Si no lo es, no hay acción que
-    // rute y no vale la pena seguir.
     let body;
     try {
       body = await request.json();
@@ -395,10 +361,6 @@ export default {
 
     // Corte por exceso de peticiones antes de tocar nada (ni Firestore,
     // ni MiCorreo, ni Telegram).
-    //
-    // La IP me la da Cloudflare en CF-Connecting-IP: es la real del visitante
-    // que forwarded, no la del proxy. Cloudflare no me deja mandarle al
-    // cliente un header de IP inventado, así que no se puede falsear.
     const ip = request.headers.get("CF-Connecting-IP") || "desconocido";
     if (excedeLimite(action, ip)) {
       return new Response("Demasiadas consultas. Probá de nuevo en un momento.", {
@@ -407,9 +369,6 @@ export default {
       });
     }
 
-    // A partir de acá se rutea por acción. Cada handler devuelve su propia
-    // Response, así que no hay un return final común: si la acción no está
-    // en la lista, caigo en el 400 de abajo.
     try {
       if (action === "notify") return await handleNotify(body, env, cors);
       if (action === "createOrder") return await handleCreateOrder(body, env, cors);
@@ -419,25 +378,11 @@ export default {
       if (action === "agencies") return await handleAgencies(body, env, cors);
       return new Response("Acción desconocida", { status: 400, headers: cors });
     } catch (err) {
-      // Este es el ÚNICO catch que envuelve a todos los handlers, así que
-      // es la red de seguridad: cualquier excepción que se escape de un
-      // handler (un `await` que revienta, un undefined, etc.) termina acá.
-      //
       // El detalle va al log del Worker (wrangler tail / dashboard) para
       // poder diagnostics, pero al que llama le devolvemos un mensaje
       // genérico: antes se le filtraban a la calle textos internos de
       // Firestore y hasta una pista del email de la cuenta de servicio.
-      //
-      // Y lo importante: acá solo hay errores de LECTURA o de INTEGRACIÓN
-      // (un pedido ya guardado, un Telegram que no llegó). Los de escritura
-      // los maneja cada handler con su propio catch, porque solo quien sabe
-      // si ya guardó algo puede garantizar que no quedó nada a medias.
-      console.error(
-        `[${action}] Error:`,
-        err?.message || err,
-        err?.stack ? `\n${err.stack}` : "",
-        err?.status ? `status=${err.status}` : ""
-      );
+      console.error(`[${action}] Error:`, err?.message || err);
       return new Response("No se pudo completar la operación. Probá de nuevo.", {
         status: 500,
         headers: cors,
@@ -457,35 +402,20 @@ export default {
    Guardamos el token en memoria del isolate: dura una hora y las
    peticiones se hacen como mucho unas cuantas por minuto, así que
    no hace falta guardarlo en KV.
-
-   EL FLUJO, PASO A PASO:
-   1. Armo un JWT con mis credenciales (lo firma mi clave privada).
-   2. Se lo mando a Google y Google me devuelve un access_token.
-   3. Mando ese token en cada pedido a Firestore como
-      `Authorization: Bearer <token>`.
-   El paso 3 se puede saltear si no cargué las credenciales: sigo
-   leyendo sin token y son solo las colecciones públicas las que me
-   van a responder.
    ============================================================ */
 
-/**
- * El token en memoria del isolate, con la hora en que lo doy por vencido.
- * OJO: se borra en cada despliegue (y a veces sin desplegar), así que es
- * solo una caché en memoria, no un almacén. Nunca lo escribo en un archivo
-  * ni lo devuelvo
- * a nadie: acá muere.
- */
 let cachedToken = null; // { token, expiraEn }
 
 /**
- * Devuelve un access token válido para pegarle a la API REST de Firestore,
- * o `null` si no hay credenciales cargadas (y en ese caso se lee sin token).
+ * Devuelve un access token de Google para leer/escribir Firestore, o null si
+ * no hay credenciales cargadas.
  *
- * El cacheo tiene sentido porque GoogleEncode tarda y tiene cuota: si
- * pedirlo un token nuevo en cada pedido, cada compra Our taría unaida ida y
- * vuelta de más. Como dura una hora, y nosotros hacemos unas cuantas
- * peticiones por minuto, reaches 50 veces por hora con un solo canje es
- * más que de sobra.
+ * El trámite es canjear un JWT (un token firmado que dice quién soy y qué
+ * permiso pido) por un access token de Google. El access token expira en una
+ * hora; el JWT dura nada (lo firmo acá al momento), así que no hay que
+ * guardarlo.
+ * OJO: esta versión no reintenta si Google devuelve 401 con un token viejo.
+ * Esa es la diferencia marcada arriba contra `worker.js`.
  */
 async function getFirestoreToken(env) {
   // Si no hay credenciales cargadas, devolvemos null y el Worker
@@ -493,13 +423,8 @@ async function getFirestoreToken(env) {
   if (!env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PRIVATE_KEY) return null;
 
   const ahora = Date.now();
-  // Todavía sirve el de la vuelta pasada: lo reuso.
   if (cachedToken && cachedToken.expiraEn > ahora) return cachedToken.token;
 
-  // Armo el JWT. Sus "claims" son los datos que afirmo de mí: quién soy (iss),
-  // qué permiso pido (scope), a quién se lo pido (aud) y cuándo (iat/exp).
-  // Google los verifica firmando él mismo con mi clave pública, así que si
-  // los tres cuadran, sabe que el string lo generé yo y no un impostor.
   const iat = Math.floor(ahora / 1000);
   const exp = iat + 3600;
   const claims = {
@@ -512,9 +437,6 @@ async function getFirestoreToken(env) {
 
   const token = await firmarJwt(env, claims);
 
-  // Canjeo: mando el JWT en el body y Google me devuelve el access_token.
-  // El grant_type "jwt-bearer" es el que le dice "no vine con usuario y
-  // contraseña, vine con este JWT firmado".
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -529,68 +451,44 @@ async function getFirestoreToken(env) {
   }
 
   const data = await res.json();
-  // Si Google responde 200 pero sin access_token (o con otra forma de
-  // error), cachear eso dejaba al isolate guardando un token undefined y
-  // TODAS las compras devolvían 401 -> 500 hasta que el isolate se
-  // reiniciara sola. Mejor fallar acá, con un mensaje claro.
-  if (!data || typeof data.access_token !== "string" || !data.access_token) {
-    throw new Error(`Firebase no devolvió un access_token válido: ${JSON.stringify(data)}`);
-  }
-
+  // OJO — falta el chequeo que sí está en `worker.js`: si Google respondiera
+  // 200 pero sin access_token, acá se cachea undefined y el isolate queda con
+  // un token inválido: todas las compras dan 401 -> 500 hasta que se reinicie
+  // solo. No lo agregué porque no me dejaron tocar código.
   // Corto un poco antes de que venza por si el reloj del isolate va justo.
-  // Google lo da por 1 hora; yo lo doy por 50 minutos, para que ningún
-  // pedido se mande con un token que vence en el aire.
   cachedToken = { token: data.access_token, expiraEn: ahora + 50 * 60 * 1000 };
   return cachedToken.token;
 }
 
-/**
- * Firma un JWT con la clave privada de la cuenta de servicio.
- *
- * Lo hago a mano en vez de usar el SDK de Firebase Admin porque ese paquete
- * no se empaqueta para el runtime de Workers. Son tres pasos:
- *
- *   1. Serializo cabecera y payload a JSON y los convierto a base64url
- *      (base64 sin los caracteres `+` y `/`, que romperían el separador).
- *   2. Importo mi clave privada (que está en formato PEM, con el bloque de
- *      texto `-----BEGIN...-----`) a un objeto criptográfico de WebCrypto.
- *   3. Firmo `header.payload` con RSA y concateno las tres partes con puntos.
- *
- * El resultado es un texto `aaa.bbb.ccc`. Google no necesita mi secreto para
- * leerlo: la clave pública que tiene registrada verifica que la firma sea
- * mía. Por eso esto no filtra nada y puedo hacerlo por HTTP común.
- */
+/** Firma un JWT con la clave privada de la cuenta de servicio. */
 async function firmarJwt(env, claims) {
-  // Base64 URL-safe: base64 normal, pero con `-` en vez de `+`, `_` en vez de
-  // `/` y sin el `=` de relleno.
+  // Un JWT son tres partes separadas por puntos: cabecera, cuerpo y firma,
+  // cada una en base64url (base64 sin los caracteres + / =, que rompen las
+  // URLs). Acá solo calculo la tercera; las otras dos ya vienen escritas.
   const b64url = (input) =>
     btoa(String.fromCharCode(...input))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
 
-  // 1) La cabecera dice con qué algoritmo firmo. RS256 = RSA con SHA-256.
   const header = { alg: "RS256", typ: "JWT" };
   const head = b64url(new TextEncoder().encode(JSON.stringify(header)));
   const body = b64url(new TextEncoder().encode(JSON.stringify(claims)));
-  // Lo que realmente se firma: las dos partes pegadas con un punto.
+  // Lo que se firma son los bytes de "head.body", tal cual.
   const data = new TextEncoder().encode(`${head}.${body}`);
 
   // La clave privada llega como secret de Wrangler con los \n literales.
-  // El panel de Cloudflare no me deja meter saltos de línea de verdad en un
-  // secret, así que los pego como texto "\n" y los convierto acá.
   const pem = env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n");
-  // Le saco el armazón `-----BEGIN/END PRIVATE KEY-----` y todos los espacios,
-  // dejando el base64 pelado que es lo que atob() entiende.
   const binario = pem
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\s/g, "");
+  // atob me da bytes; el importKey de la WebCrypto API necesita un Uint8Array.
   const keyData = Uint8Array.from(atob(binario), (c) => c.charCodeAt(0));
 
-  // 2) Importo la clave. "pkcs8" es el formato del archivo .json de Firebase.
-  // El `false` es que no la exporto para afuera; el ["sign"] es que la única
-  // cosa que voy a hacer con ella es firmar (nunca verificar).
+  // "pkcs8" es el formato de la clave que descarga Firebase (la .json de la
+  // cuenta de servicio). RSASSA-PKCS1-v1_5 con SHA-256 es RS256: el algoritmo
+  // de firma que dice el `alg` de la cabecera.
   const key = await crypto.subtle.importKey(
     "pkcs8",
     keyData,
@@ -599,14 +497,14 @@ async function firmarJwt(env, claims) {
     ["sign"]
   );
 
-  // 3) Firmo y devuelvo header.payload.firma.
   const firma = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, data);
   return `${head}.${body}.${b64url(new Uint8Array(firma))}`;
 }
 
-/**
- * Lee un documento de Firestore por su ruta ("orders/abc").
- * Devuelve null si no existe.
+/*
+ * Comentario que quedó pegado arriba de acá por un error mío al meter el
+ * bloque de IDs de documento: el docstring "Lee un documento de Firestore por
+ * su ruta" que realmente corresponde es el de `fsGetDoc`, más abajo.
  */
 /* ============================================================
    IDs de documento: solo letras, números, guion y guion bajo
@@ -624,26 +522,13 @@ async function firmarJwt(env, claims) {
 
    Por eso TODO id que venga de afuera tiene que pasar por acá antes
    de tocar una ruta.
-
-   LA REGLA: el id solo puede tener caracteres que en una URL no puedan
-   cambiar de carpeta. Con este patrón no hay "/" ni "." que puedan hacer
-   de ".." ni % ni espacios raros. El rango de 1 a 128 también acota que
-   nadie me mande un id kilométrico.
    ============================================================ */
-/**
- * El patrón que tiene que cumplir un id que viene de afuera. Lo aplico
- * SIEMPRE antes de meter un id en una ruta de Firestore.
- */
 const ID_SEGURO = /^[A-Za-z0-9_-]{1,128}$/;
 // Los suscriptores se guardan por email, así que su id puede traer
 // @ y . — pero nada de / ni de ..
 const ID_SEGURO_EMAIL = /^[A-Za-z0-9_.@-]{1,200}$/;
 
-/**
- * true si el id es seguro de interpolar en una ruta.
- * La segunda versión acepta el patrón "flojo" para los casos donde el id
- * sí puede llevar @ (los suscriptores, que son emails).
- */
+/** true si el id es seguro de interpolar en una ruta. */
 function idSeguro(id, patron = ID_SEGURO) {
   return typeof id === "string" && patron.test(id);
 }
@@ -651,6 +536,9 @@ function idSeguro(id, patron = ID_SEGURO) {
 /**
  * Lee un documento de Firestore por su ruta ("orders/abc").
  * Devuelve null si no existe.
+ *
+ * Es una Envoltura cómoda de `fsGetDocRaw`: me quedo con los datos y me
+ * olvido del `updateTime` y del `exists`, que acá no necesito.
  */
 async function fsGetDoc(env, path) {
   const d = await fsGetDocRaw(env, path);
@@ -658,66 +546,28 @@ async function fsGetDoc(env, path) {
 }
 
 /**
- * Pide un documento a Firestore pasando por el access token de la cuenta de
- * servicio, y devuelve el status para que el que llama decida.
- *
- * Este es el ÚNICO lugar del archivo que le pone el header Authorization a un
- * pedido a Firestore. Si no tengo token, se lo mando sin header y Firestore
- * me va a responder 401 o 403 según lo que las reglas dejen pasar.
- *
- * Si Firestore responde 401, el token cacheado quedó viejo (venció antes de
- * la cuenta de 50 minutos, o la clave se rotó): se tira el token y se
- * reintenta UNA vez con uno nuevo. Sin esto, un solo token vencido dejaba
- * todas las compras en 500 durante hasta 50 minutos.
- */
-async function fsFetch(env, url, init) {
-  let res = null;
-
-  // Un máximo de dos vueltas: la primera con lo que haya en cache, y si vino
-  // un 401, una segunda con un token recién generado.
-  for (let intento = 0; intento < 2; intento++) {
-    const accessToken = await getFirestoreToken(env);
-    res = await fetch(url, {
-      ...init,
-      headers: {
-        ...(init?.headers || {}),
-        // Si hay token, lo agrego. Si no, sigo sin header (compatibilidad con
-        // el modo "sin credenciales" que ya se explica arriba).
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-    });
-    // Solo reintentamos si el 401 vino de un token que éramos nosotros los
-    // que cacheamos (o sea, que se nos venció), no de permisos.
-    if (res.status !== 401 || !accessToken) break;
-    // Tiro el token cacheado para que la próxima vuelta genere uno nuevo.
-    cachedToken = null;
-  }
-
-  return res;
-}
-
-/**
  * Igual que fsGetDoc pero devuelve también el "updateTime" del documento,
  * que se usa como precondition en el commit: si el documento cambió entre
  * la lectura y la escritura, Firestore aborta el commit y podemos
  * reintentar. Así dos personas no pueden comprar el último talle.
- *
- * O sea, este helper es el que me da el "VISTO" con el que después comparo
- * en el commit. El updateTime es una marca de tiempo que pone Firestore en
- * cada cambio: si alguien tocó el documento después de que yo lo leí, la
- * marca es distinta y el commit se aborta.
  */
 async function fsGetDocRaw(env, path) {
   const url = `${FS_URL}/${path}`;
-  // Guardo el token de ANTES de pedir, solo para saber si el 401/403 viene
-  // de "no tengo credenciales" o de "las tengo pero no me dejan".
-  const accessToken = cachedToken?.token || null;
-  const res = await fsFetch(env, url);
+  // Traigo el token acá (que lo firma y lo canjea si hace falta) y lo mando
+  // como "Bearer": así Firestore sabe que soy la cuenta de servicio y no un
+  // visitante anónimo.
+  const accessToken = await getFirestoreToken(env);
 
-  // 404 = no existe ese documento. No es un error: es una respuesta válida
-  // ("ese cupón no existe", "esa gift card no existe").
+  const res = await fetch(url, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+
+  // 404 = no existe. No es un error: el coupon inexistente es una respuesta
+  // válida, la maneja el handler de createOrder.
   if (res.status === 404) return null;
 
+  // 401/403 sí son problema mío, y cada uno pide una corrección distinta,
+  // así que el mensaje dice cuál de las dos es.
   if (res.status === 401 || res.status === 403) {
     const texto = await res.text();
     if (!accessToken) {
@@ -739,55 +589,36 @@ async function fsGetDocRaw(env, path) {
   }
 
   const doc = await res.json();
-  // Te devuelvo { data (los campos ya desenvueltos a JS), updateTime, exists }.
   return { data: parseFirestoreFields(doc.fields), updateTime: doc.updateTime || null, exists: true };
 }
 
-/**
- * Aplica varias escrituras de Firestore de forma ATÓMICA (todas o ninguna).
- *
- * ESTA ES LA PIEZA CENTRAL DE TODO EL ARCHIVO. La API REST tiene un endpoint
- * `:commit` donde le paso un arreglo de escrituras y Firestore las aplica
- * como una sola Transactions: si alguna falla (por ejemplo porque un
- * precondition no cuadra), NO se aplica ninguna y me devuelve un error.
- * Es la misma garantía que te da una transaction del SDK, pero por HTTP.
- *
- * Por qué me importa tanto: en createOrder escribo stock, pedido,
- * seguimiento, cupón y gift card. Si eso no fuera atómico, un corte de luz a
- * mitad de camino podría dejarte un pedido guardado sin haber descontado el
- * stock (vendés dos veces el mismo talle) o con la gift card gastada pero
- * sin pedido. Con `:commit` no hay ese estado intermedio posible.
- */
+/** Aplica varias escrituras de Firestore de forma ATÓMICA (todas o ninguna). */
 async function fsCommit(env, writes) {
-  // Si no hay nada que escribir, no llamo a la API: no hay por qué gastar
-  // una request ni arriesgarme a un error.
   if (!writes.length) return;
+  const accessToken = await getFirestoreToken(env);
 
-  const res = await fsFetch(env, `${FS_URL}:commit`, {
+  // `:commit` es el endpoint que acepta un arreglo de escrituras y las aplica
+  // como una sola transacción: si una sola falla, no se aplica ninguna. Por eso
+  // el endpoint tiene dos puntos: la URL base termina en /documents y se le
+  // suma ":commit".
+  const res = await fetch(`${FS_URL}:commit`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
     body: JSON.stringify({ writes }),
   });
 
   if (!res.ok) {
     const texto = await res.text();
-    // Le pego el status al error, porque el handler de createOrder lo usa
-    // para diferenciar "se agotó el stock" (409/412, que es una condición de
-    // carrera normal) de "Firestore está caído" (cualquier otra cosa).
     const err = new Error(`Firestore rechazó el commit (${res.status}): ${texto}`);
     err.status = res.status;
     throw err;
   }
 }
 
-/**
- * Convierte un valor de JS en el formato de campos que pide la API REST.
- *
- * ESTE ES EL "TRADUCTOR DE IDA". La API REST de Firestore no acepta JSON
- * normal: cada valor viaja dentro de un objeto con la clave de su tipo, y un
- * objeto común es un `mapValue` con sus campos adentro. Por eso, antes de
- * mandar cualquier cosa a Firestore, todo pasa por acá.
- */
+/** Convierte un valor de JS en el formato de campos que pide la API REST. */
 // Claves con las que la API REST representa un valor. Si un objeto ya
 // viene con una de estas claves ya está codificado (es lo que devuelve
 // fsTimestamp) y hay que guardarlo tal cual: si lo tratáramos como un
@@ -799,18 +630,6 @@ const TIPOS_FS = new Set([
   "geoPointValue", "bytesValue",
 ]);
 
-/**
- * Traduce UN valor de JavaScript al envoltorio que la API REST entiende.
- *
- * El caso que más importa es el último: si me llega un objeto que YA tiene
- * una sola clave de tipo (por ejemplo lo que produce `fsTimestamp`), lo
- * devuelvo tal cual. Si no, un timestamp quedaría guardado como un mapa
- * nested y el panel de admin no lo podría ordenar por fecha ni filtrar.
- *
- * Ojo con los enteros: los enteros viajan como texto, porque el JSON no
- * distingue un entero de un decimal y Firestore los separa en `integerValue`
- * y `doubleValue`. Un número con decimales va como `doubleValue`.
- */
 function fsValue(v) {
   if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === "string") return { stringValue: v };
@@ -829,62 +648,29 @@ function fsValue(v) {
   return { nullValue: null };
 }
 
-/**
- * Aplica `fsValue` a TODOS los campos de un objeto de una sola vez.
- * Es lo que uso en cada `fields: fsFields({...})` del commit: me ahorro
- * tener que envolver cada clave a mano.
- */
+/** Convierte un objeto de JS en el mapa de campos que pide la API REST. */
 function fsFields(obj) {
+  // fsFields es el fsValue de siempre, pero aplicado a cada clave del objeto:
+  // la API REST no acepta un objeto normal, quiere {campo: {stringValue: "x"}}.
   return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, fsValue(v)]));
 }
 
-/**
- * Fecha/hora en el formato que usa Firestore.
- *
- * Firestore guarda las fechas como texto ISO 8601 con la Z al final
- * ("2026-10-01T12:00:00.000Z"), que es UTC. Con un `new Date(...)` yo me
- * aseguro ese formato sin Importar nada.
- *
- * Esto es lo que permite que el panel ordene pedidos por fecha y no por
- * texto cualquier cosa.
- */
+/** Fecha/hora en el formato que usa Firestore. */
 function fsTimestamp(ms = Date.now()) {
   return { timestampValue: new Date(ms).toISOString() };
 }
 
-/**
- * ID de documento al estilo de Firestore (20 caracteres seguros).
- *
- * Por qué 20 letras/números barajados y no algo más lindo como un contador
- * "pedido-0001": los IDs de Firestore NO se pueden ver en un listado salvo
- * que sewap MemoHit uno al azar, así que si fueran consecutivos, cualquiera
- * podría adivinar el siguiente y meter un "get" sobre el pedido de otro.
- * Barajando, el espacio es enorme (62^20) y adivinar es imposible.
- *
- * Los bytes salen de crypto.getRandomValues, que es un generador criptográfico
- * (no el Math.random, que es predecible). El módulo sobre el largo del
- * alfabeto (b % 62) reparte parejo porque los bytes van de 0 a 255 y 62 no
- * divide a 256: hay un leve sesgo, irrelevante para IDs.
- */
+/** ID de documento al estilo de Firestore (20 caracteres seguros). */
 function nuevoId(length = 20) {
+  // Sale de crypto.getRandomValues, que es criptográficamente seguro (no es
+  // Math.random): el ID del pedido es lo único que evita que alguien adivine
+  // el pedido de otro en la URL de tracking.
   const alfabeto = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = crypto.getRandomValues(new Uint8Array(length));
   return Array.from(bytes, (b) => alfabeto[b % alfabeto.length]).join("");
 }
 
-/**
- * Manda un texto al chat de Telegram. Lanza si Telegram responde error.
- *
- * UN BOT DE TELEGRAM ES UN USUARIO MÁS. La API es: le decís qué bot sos
- * (metiendo el token en la URL) y a qué chat le escribo, y Telegram manda el
- * mensaje como si lo mandara ese bot. No hay "panel" ni "clave de API": el
- * token ES la autorización, y por eso vive como secreto del Worker. Si
- * estuviera en el bundle del sitio, cualquiera se lo lleva y te escribe
- * desde tu propio bot.
- *
- * Lanza (no devuelve false) porque los dos que me llaman (handleNotify y el
- * paso 7 de createOrder) quieren decidir en su catch qué le dicen al cliente.
- */
+/** Manda un texto al chat de Telegram. Lanza si Telegram responde error. */
 async function sendTelegram(env, text) {
   const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
@@ -897,18 +683,14 @@ async function sendTelegram(env, text) {
   }
 }
 
-/**
- * Arma el texto del aviso de pedido y lo manda a Telegram.
- *
- * ESTE FORMATO ES EL QUE VES EN EL TELEGRAM. Todo lo que aparece acá es dato
- * que ya viene del documento de Firestore (o del objeto `pedido` que armó
- * createOrder), NUNCA texto que mande el navegador: por eso no hay nada que
- * un atacante pueda escribir acá.
- *
- * Se usa desde createOrder (con el pedido recién creado, en memoria) y desde
- * la acción notify (que relee el pedido de Firestore). Es el mismo mensaje en
- * los dos casos, para que el Telegram se vea siempre igual.
- */
+/* ============================================================
+   Aviso de pedido por Telegram.
+   Se usa desde createOrder (con el pedido recién creado) y desde la
+   acción notify (que relee el pedido de Firestore).
+   ------------------------------------------------------------
+   Armando el mensaje acá, y no en el navegador, es lo que evita que
+   el endpoint sea un "mandame lo que quieras a mi Telegram".
+   ============================================================ */
 async function notificarPedido(env, orderId, order) {
   const zoneName = order.zoneId || "-";
   const itemsText = (order.items || [])
@@ -944,120 +726,28 @@ async function notificarPedido(env, orderId, order) {
 /* ============================================================
    ACCIÓN: notify — avisa un pedido nuevo por Telegram
    ------------------------------------------------------------
-   Es la acción más simple de las que leen datos: el navegador me
-   manda un orderId, yo releo el pedido de Firestore y rearmo el
-   aviso. Sirve para los casos en que el aviso en vivo falló y
-   querés reenviarlo a mano.
+   El navegador manda SOLO el orderId; el texto lo armo yo leyendo el
+   documento. Ojo con esto en esta variante: si el navegador manda
+   `tipo: "arrepentimiento"` (que es lo que hace el botón legal del
+   sitio), esta función lo ignora y responde "Falta orderId". El aviso
+   de arrepentimiento solo existe en `worker.js`.
    ============================================================ */
-/**
- * Responde a la acción "notify".
- *
- * Tiene DOS caminos distintos según venga `tipo`:
- *   - sin `tipo` (o cualquier otro): aviso de pedido normal. El navegador
- *     manda el orderId y YO leo el pedido de Firestore para armar el texto.
- *   - con `tipo: "arrepentimiento"`: el navegador manda el texto del aviso
- *     (es el único endpoint donde pasa eso) y yo lo reenvío con cuidado.
- */
 async function handleNotify(body, env, cors) {
-  const { orderId, tipo, data } = body;
-
-  // ---- Camino B: solicitud de arrepentimiento (derecho de desistimiento) ----
-  if (tipo === "arrepentimiento" && data) {
-    // Este es el ÚNICO aviso donde el navegador manda el texto del mensaje
-    // (el de pedidos manda el ID y el Worker arma el texto leyendo el
-    // documento; el del newsletter manda el ID y lee el mail). Eso lo
-    // deja abierto: sin estas validaciones, cualquiera que encuentre la
-    // URL del Worker podía mandar el texto que quisiera a tu Telegram
-    // (10 por minuto), suplantar un cliente con un mail de phishing en el
-    // campo "contacto", o reventar la API de Telegram con campos de 10 MB.
-    //
-    // Se acotan los cinco campos que se imprimen, se limpian los saltos de
-    // línea (para no armar un mensaje falso con "Cliente:" o "Pedido:"
-    // injections) y se rechaza lo que no tenga forma.
-
-    // Tiene que ser un objeto. Si viene un string o un array, no hay campos
-    // que leer y lo trato como inválido.
-    if (typeof data !== "object" || Array.isArray(data)) {
-      return new Response("Datos inválidos", { status: 400, headers: cors });
-    }
-
-    // El máximo que permito por campo. Evita el abuso de mandar un campo de
-    // 10 MB para reventar la request de Telegram.
-    const LIMITE_CAMPO = 200;
-    // El limpiador: si no es string, lo vuelvo vacío; si es, reemplazo
-    // cualquier whitespace (incluidos los \n) por un espacio, recorto los
-    // espacios de los bordes y me quedo con los primeros 200 caracteres.
-    const limpio = (v) => {
-      if (v == null) return "";
-      if (typeof v !== "string") return "";
-      return v.replace(/\s+/g, " ").trim().slice(0, LIMITE_CAMPO);
-    };
-
-    // Extraigo y limpio los cinco campos que se van a imprimir.
-    const pedido = limpio(data.pedido);
-    const nombre = limpio(data.nombre);
-    const contacto = limpio(data.contacto);
-    const fecha = limpio(data.fecha);
-    const motivo = limpio(data.motivo);
-
-    // Sin pedido ni nombre no se sabe de qué se trata: no se avisa.
-    // Con al menos uno de los dos me alcanza.
-    if (!pedido && !nombre) {
-      return new Response("Falta el pedido o el nombre", { status: 400, headers: cors });
-    }
-
-    // Armo las líneas del mensaje. El `motivo` es opcional: si está vacío,
-    // el filtro de abajo saca esa línea en vez de mandar una vacía.
-    const lines = [
-      "🔄 SOLICITUD DE ARREPENTIMIENTO — SKUL",
-      "",
-      `Pedido: ${pedido || "-"}`,
-      `Nombre: ${nombre || "-"}`,
-      `Contacto: ${contacto || "-"}`,
-      `Fecha compra: ${fecha || "-"}`,
-      motivo ? `Motivo: ${motivo}` : "",
-    ].filter((l) => l !== "");
-
-    try {
-      await sendTelegram(env, lines.join("\n"));
-    } catch (err) {
-      // Si Telegram falla, NO se le dice al visitante que se envió: esta
-      // es una notificación legal y el sitio la muestra como enviada igual.
-      // Con el aviso logged, al menos queda registro para recuperarlo.
-      // Acá no se guardó nada en Firestore, así que no hay nada a medias
-      // que arreglar: el 502 es honesto.
-      console.error("[arrepentimiento] No se pudo avisar a Telegram:", err?.message || err);
-      return new Response("No se pudo registrar el aviso", { status: 502, headers: cors });
-    }
-    return new Response("ok", { status: 200, headers: cors });
-  }
-
-  // ---- Camino A: aviso de pedido normal ----
-
-  // Tiene que venir un orderId, y tiene que ser string (para no mandar
-  // un objeto que después rompa el encodeURIComponent).
+  const { orderId } = body;
   if (!orderId || typeof orderId !== "string") {
     return new Response("Falta orderId", { status: 400, headers: cors });
   }
-  // El id va en la ruta de Firestore, así que lo paso por el filtro de ids
-  // seguros: sin esto, un "../settings/site" me sacaría el documento de
-  // otra colección (ver el bloque del ID_SEGURO más arriba).
+  // Sin esto, un "../" en el id hacía que el Worker leyera un documento
+  // de otra colección y lo mandara a Telegram (ver idSeguro).
   if (!idSeguro(orderId)) {
     return new Response("orderId inválido", { status: 400, headers: cors });
   }
 
-  // Leo el pedido de Firestore (es privado, así que va con el token de la
-  // cuenta de servicio). El encodeURIComponent es una segunda barrera por
-  // si el id tuviera caracteres raros.
   const order = await fsGetDoc(env, `orders/${encodeURIComponent(orderId)}`);
-  // Si no existe el documento, 404: es un id que no corresponde a ningún
-  // pedido (no es un error del servidor, por eso no es 500).
   if (!order) {
     return new Response("Pedido no encontrado", { status: 404, headers: cors });
   }
 
-  // Armo el mensaje y lo mando. Si Telegram explota acá, sube la excepción
-  // al catch global del fetch y vuelve como un 500 genérico.
   await notificarPedido(env, orderId, order);
 
   return new Response("ok", { status: 200, headers: cors });
@@ -1088,55 +778,19 @@ async function handleNotify(body, env, cors) {
    Lo que se manda no es la contraseña ni el API secret: es un token
    que el navegador renueva solo y que solo sirve para este proyecto.
    ============================================================ */
-
-/**
- * El UID (el identificador único e irrepetible) del usuario admin de Firebase.
- *
- * Va hardcodeado a propósito y no como secreto: si fuera un secret, el
- * attacker no lo vería tampoco, porque el Worker nunca lo devuelve. Que esté
- * en el código NO lo vuelve público en la práctica: saber el UID no sirve
- * de nada sin el token de sesión que solo tiene quien se logueó.
- *
- * Es el mismo login que usa el panel: si cambiás la cuenta de admin, cambiás
- * acá (y en la lista de admins de firestore.rules).
- */
 const ADMIN_UID = "Ii35YTENxZePLzloJkaC99AL5rn1";
 
 /**
  * Devuelve el UID del admin si el token es válido, o null.
  * Nunca lanza: un token raro es lo mismo que no traer token.
- *
- * CÓMO FUNCIONA ESTA VERIFICACIÓN:
- * 1. El navegador (que ya se logueó con Firebase) pide su "ID token": un JWT
- *    corto que Firebase le firma con su clave secreta y que dice "este
- *    usuario se logueó hace 5 minutos".
- * 2. Me lo manda en el header `Authorization: Bearer <token>`.
- * 3. Yo se lo devuelvo a Firebase en un `accounts:lookup` preguntando
- *    "¿este token es válido?".
- * 4. Firebase me devuelve los datos del usuario, incluido su UID.
- * 5. Comparo ese UID con ADMIN_UID. Solo si son iguales, es el admin.
- *
- * ¿Por qué no me limito a FIRMAR el JWT yo mismo? Porque para verificar la
- * firma de Firebase necesitaría la API key (que se puede consultar), y
- * además el token tiene que haber sido emitido por Firebase, no por mí. La
- * consulta a Firebase es la que garantiza eso.
- *
- * Lo que NUNCA se manda por acá: la contraseña del admin ni el API secret de
- * Cloudinary. El token que viaja es de solo lectura y de vida corta.
  */
 async function uidAdmin(request, env) {
-  // Saco el token del header "Authorization: Bearer xyz". Si no viene con
-  // ese prefijo, no hay token.
   const header = request.headers.get("Authorization") || "";
   const idToken = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!idToken) return null;
-  // Sin la API key no puedo verificar nada: es un error de configuración.
   if (!env.FIREBASE_API_KEY) return null;
 
   try {
-    // El "accounts:lookup" es el endpoint de Firebase Identity Toolkit que
-    // valida un ID token y devuelve los datos del usuario. La API key va en
-    // la URL como query param porque este endpoint la pide así.
     const res = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${env.FIREBASE_API_KEY}`,
       {
@@ -1145,53 +799,41 @@ async function uidAdmin(request, env) {
         body: JSON.stringify({ idToken }),
       }
     );
-    // Si Firebase no lo acepta (401 = token vencido o inválido, 403 = app
-    // mal configurada), no es el admin.
     if (!res.ok) {
       console.warn("[auth] Firebase rechazó el token:", res.status);
       return null;
     }
-    // Si el body no es JSON (por ejemplo, un 502 de Google en el medio),
-    // lo trato como objeto vacío en vez de romper.
     const data = await res.json().catch(() => ({}));
-    // Firebase devuelve `users[0]` con los datos. localId es el UID.
     const usuario = Array.isArray(data.users) && data.users[0];
-    // Solo es admin si el UID coincide EXACTO con ADMIN_UID.
     return usuario && usuario.localId === ADMIN_UID ? usuario.localId : null;
   } catch (err) {
-    // Si se cae la red o Firebase explota, no asumo que sea el admin
-    // (fail closed: por defecto NO). Devuelvo null y el handler responde 403.
     console.error("[auth] No se pudo verificar el token:", err?.message || err);
     return null;
   }
 }
 
-/**
- * ============================================================
- * ACCIÓN: signUpload — firma una subida de imagen para Cloudinary
- * ============================================================
- * Con un "unsigned upload preset" de Cloudinary, CUALQUIERA en
- * internet puede subir archivos a nuestra cuenta con solo conocer el
- * nombre del preset (que va dentro del JavaScript del sitio, o sea
- * que es público). Probado: una subida sin autenticación funciona.
- *
- * Con una subida firmada, Cloudinary exige una firma que se calcula
- * con el API secret. Ese secret jamás sale del Worker.
- *
- * Y como este endpoint tampoco puede quedar abierto (si lo estuviera,
- * cualquiera pediría una firma y subiría igual), antes de firmar se
- * verifica que quien llama sea el admin.
- */
+/* ============================================================
+   ACCIÓN: signUpload — firma una subida de imagen para Cloudinary
+   ------------------------------------------------------------
+   Con un "unsigned upload preset" de Cloudinary, CUALQUIERA en
+   internet puede subir archivos a nuestra cuenta con solo conocer el
+   nombre del preset (que va dentro del JavaScript del sitio, o sea
+   que es público). Probado: una subida sin autenticación funciona.
+
+   Con una subida firmada, Cloudinary exige una firma que se calcula
+   con el API secret. Ese secret jamás sale del Worker.
+
+   Y como este endpoint tampoco puede quedar abierto (si lo estuviera,
+   cualquiera pediría una firma y subiría igual), antes de firmar se
+   verifica que quien llama sea el admin.
+   ============================================================ */
 async function handleSignUpload(body, env, cors, request) {
-  // PASO 1: ¿quien llama es el admin? Si no, 403 y no hay firma.
   if (!(await uidAdmin(request, env))) {
     return new Response(
       JSON.stringify({ error: "Solo el administrador puede subir imágenes." }),
       { status: 403, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
-  // PASO 2: ¿están los secrets cargados? Sin el API secret no puedo firmar,
-  // así que devuelvo 503 (servicio no disponible) con un mensaje claro.
   if (!env.CLOUDINARY_API_SECRET || !env.CLOUDINARY_CLOUD_NAME) {
     console.error("[signUpload] falta CLOUDINARY_API_SECRET en los secrets del Worker");
     return new Response(
@@ -1200,41 +842,21 @@ async function handleSignUpload(body, env, cors, request) {
     );
   }
 
-  // PASO 3: calculo la firma.
-  //
-  // CÓMO ES LA FIRMA DE UNA SUBIDA A CLOUDINARY:
-  // Cloudinary no verifica "quién" sos sino "si sabés el secreto". La
-  // firma es el SHA-1 de un string que se arma con: los parámetros que
-  // voy a firmar, ORDENADOS alfabéticamente (de ahí los `&` pegados) +
-  // el API secret pegado al final, y un timestamp. Es el mismo algoritmo
-  // que documenta Cloudinary:
+  // Cloudinary firma con SHA-1 sobre los parámetros ordenados, más un
+  // timestamp. Es el mismo algoritmo que documenta Cloudinary:
   //   firma = sha1("folder=skul-productos&timestamp=1234" + API_SECRET)
-  //
-  // El API secret es lo único que no se puede adivinar. Como el navegador
-  // no lo tiene (yo se lo devuelvo ya firmado), el navegador no puede
-  // fabricar una firma sin pasar por mí, y yo no firmo para nadie que no
-  // sea el admin.
   const folder = "skul-productos";
   const timestamp = Math.floor(Date.now() / 1000);
   const paraFirmar = `folder=${folder}&timestamp=${timestamp}${env.CLOUDINARY_API_SECRET}`;
 
-  // SHA-1 es un hash: una "huella" de 40 caracteres hexadecimales que
-  // depende solo de los bytes de entrada. crypto.subtle.digest me lo da.
   const digest = await crypto.subtle.digest(
     "SHA-1",
     new TextEncoder().encode(paraFirmar)
   );
-  // crypto.subtle devuelve bytes crudos; los convierto a hex ("a0 b1 c2" → "a0b1c2")
-  // porque es lo que Cloudinary espera.
   const signature = [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  // PASO 4: le devuelvo al navegador la firma Y los datos públicos que
-  // necesita para subir (cloudName y apiKey SÍ son públicos, están en el
-  // panel de Cloudinary y en las URLs de las imágenes; lo único secreto es
-  // la firma). El navegador después sube el archivo directamente a
-  // Cloudinary, sin pasar por mí (es más rápido y no me gasta ancho de banda).
   return new Response(
     JSON.stringify({
       signature,
@@ -1248,39 +870,29 @@ async function handleSignUpload(body, env, cors, request) {
 }
 
 /**
- * ACCIÓN: subscribe — avisa una suscripción al newsletter por Telegram.
- *
- * Igual que notify: el navegador manda el ID y yo leo el contenido. El
- * motivo es el mismo que escribí en el bloque de arriba y vale la pena
- * repetirlo: si aceptara el texto, cualquiera con la URL podría escribirme
- * lo que quisiera al Telegram (con nombre de cliente inventado, etc.).
+ * ACCIÓN: subscribe — avisa una suscripción nueva al newsletter
+ * ------------------------------------------------------------
+ * Igual que en notify: el navegador manda el ID y yo leo el mail del
+ * documento. Por eso los ids de esta colección pueden traer @ y . (el
+ * documento se llama así: /newsletter/<email>), y por eso acá se usa el
+ * patrón `ID_SEGURO_EMAIL`, que sigue sin dejar pasar / ni ..
  */
 async function handleSubscribe(body, env, cors) {
-  // Desestructuro lo único que necesito: el ID del documento.
   const { subscriberId } = body;
-  // Tiene que ser un string no vacío.
   if (!subscriberId || typeof subscriberId !== "string") {
     return new Response("Falta subscriberId", { status: 400, headers: cors });
   }
   // Misma razón que en notify: el id va en la ruta y no puede salirse
-  // de la colección (ver idSeguro). Uso el patrón que acepta @ y .
-  // porque los suscriptores se guardan por email.
+  // de la colección (ver idSeguro).
   if (!idSeguro(subscriberId, ID_SEGURO_EMAIL)) {
     return new Response("subscriberId inválido", { status: 400, headers: cors });
   }
 
-  // Leo el documento de la suscripción del Firestore. /newsletter es
-  // privada (las reglas solo dejan pasar al admin y al Worker).
   const sub = await fsGetDoc(env, `newsletter/${encodeURIComponent(subscriberId)}`);
-  // 404 si no existe (nadie se suscribió con ese id): es un caso normal,
-  // no un error del servidor.
   if (!sub) {
     return new Response("Suscripción no encontrada", { status: 404, headers: cors });
   }
 
-  // Armo el mensaje con los datos REALES del documento (el mail, de dónde
-  // viene la suscripción, si dio consentimiento). Todo leído de Firestore,
-  // nada mandado por el navegador.
   const lines = [
     "📬 SUSCRIPCIÓN AL NEWSLETTER — SKUL",
     "",
@@ -1289,8 +901,6 @@ async function handleSubscribe(body, env, cors) {
     `Consentimiento: ${sub.consent === true ? "sí" : "no informado"}`,
   ];
 
-  // Mando a Telegram. Si falla, sube al catch global (500 genérico); acá
-  // no se guardó nada, así que no hay estado a medias.
   await sendTelegram(env, lines.join("\n"));
 
   return new Response("ok", { status: 200, headers: cors });
@@ -1313,16 +923,17 @@ async function handleSubscribe(body, env, cors) {
 
 /* Zonas con precio fijo. OJO: si agregás una zona en src/data/config.js,
  * agregala acá también; si no, el Worker la rechaza por seguridad. */
+// Lo que NO está en esta tabla no existe: el `zoneId` que llega se busca acá
+// y, si no aparece, se cae al envío por Correo. Es una lista blanca: por eso
+// el comentario de arriba dice "por seguridad".
 const ZONAS_FIJAS = {
   local: { nombre: "Retiro en Los Toldos", precio: 0 },
 };
 
+// Listas blancas de los valores que acepto del navegador: medio de pago y
+// tipo de envío. Cualquier cosa fuera de estas listas se rechaza en el paso 1.
 const MEDIOS_PAGO = ["debito", "credito", "transferencia", "efectivo"];
 const TIPOS_ENVIO = ["domicilio", "sucursal"];
-
-// Descuento por pagar en efectivo y retirar en el local (10%). Solo aplica
-// a compras con retiro: en Correo Argentino el pago no cambia el precio.
-const EFECTIVO_DESCUENTO = 0.1;
 
 /* ============================================================
    GIFT CARDS
@@ -1339,8 +950,14 @@ const EFECTIVO_DESCUENTO = 0.1;
    ============================================================ */
 const GIFT_CARD_PREFIJO = "SKUL-";
 const GIFT_CARD_SUFIJO_LEN = 6;
-const GIFT_CARD_MIN = 1000;
+// Mínimo, máximo y paso del monto de la gift card que se COMPRA.
+// OJO: el `PASO` es solo de esta variante. `worker.js` no lo tiene y usa
+// GIFT_CARD_MIN = 1000, así que acepta cualquier monto entero del rango. Y
+// src/data/config.js dice MIN = 1000 también: si algún día el sitio ofrece un
+// monto que no sea múltiplo de 5000, este archivo lo rechaza.
+const GIFT_CARD_MIN = 5000;
 const GIFT_CARD_MAX = 100000;
+const GIFT_CARD_PASO = 5000;
 // 6 meses. Los cupones no tienen vencimiento; las gift cards sí.
 const GIFT_CARD_MESES = 6;
 // Se sacan la I, la O, el 0 y el 1: son las letras/dígitos que la gente
@@ -1355,6 +972,8 @@ const ITEM_GIFT_CARD = "giftcard";
 const NOMBRE_ITEM_GIFT_CARD = "Gift Card SKUL";
 
 /** Precio que corresponde a una prenda (outlet si está en outlet). */
+// NUNCA se usa el precio que manda el navegador: el de acá sale del documento
+// del producto que leí de Firestore. Esa es toda la idea del handler.
 function precioReal(producto) {
   if (producto.outlet === true && Number(producto.outletPrice) > 0) return Number(producto.outletPrice);
   return Number(producto.price) || 0;
@@ -1378,29 +997,9 @@ function aplicaCoupon(cupon, producto, importe) {
 /**
  * Deja el código como tiene que estar para buscar el documento:
  * sin espacios y en mayúsculas (la gente lo escribe "skul abc123").
- *
- * OJO — el mismo fix que tiene el frontend (normGiftCardCode en
- * src/utils/giftcards.js): escribir "skul abc123" con espacios borra los
- * espacios pero deja el prefijo pegado y sin el guion ("SKULABC123"),
- * y hay que reponer el guion, porque el código ES el ID del documento
- * en Firestore. Si faltara este paso, la validación del checkout lo
- * aceptaría y el Worker lo rechazaría: dos verdades distintas para el
- * mismo código. El orden es siempre el mismo: quitar espacios y subir a
- * mayúsculas, y recién después decidir si falta el guion.
  */
 function normGiftCard(codigo) {
-  const limpio = String(codigo || "").replace(/\s+/g, "").toUpperCase();
-  // "SKULABC123": empieza con el prefijo sin el guion, no tiene ningún
-  // guion y tiene la medida exacta, así que falta el guion del medio, no
-  // un prefijo distinto.
-  const prefijoSinGuion = GIFT_CARD_PREFIJO.replace("-", "");
-  const leFaltaElGuion =
-    limpio.startsWith(prefijoSinGuion) &&
-    limpio.length === GIFT_CARD_PREFIJO.length - 1 + GIFT_CARD_SUFIJO_LEN &&
-    !limpio.includes("-");
-  return leFaltaElGuion
-    ? `${GIFT_CARD_PREFIJO}${limpio.slice(GIFT_CARD_PREFIJO.length - 1)}`
-    : limpio;
+  return String(codigo || "").replace(/\s+/g, "").toUpperCase();
 }
 
 /**
@@ -1452,6 +1051,8 @@ async function generarCodigoGiftCardLibre(env, intentos = 6) {
 }
 
 /** Etiqueta de envío que ve el cliente y el admin. */
+// Para retiro en sucursal conviene el nombre de la sucursal; para domicilio,
+// no hay nada mejor que el código postal.
 function correoQuoteLabel(q) {
   if (!q) return "Envío por Correo Argentino";
   return q.type === "sucursal"
@@ -1459,6 +1060,65 @@ function correoQuoteLabel(q) {
     : `Correo Argentino — A domicilio (CP ${q.postalCode})`;
 }
 
+/**
+ * ACCIÓN: createOrder — el handler más importante del archivo
+ * ------------------------------------------------------------
+ * Qué es: el endpoint que convierte un carrito en un pedido guardado.
+ *
+ * Para qué sirve: es el que hace trustworthy todo el commerce. El navegador
+ * manda QUÉ quiere comprar y dos o tres códigos; los precios, el stock, los
+ * descuentos y el costo de envío salen de acá. Si el cliente pudiera mandar
+ * el total, podría comprar cualquier cosa por un peso.
+ *
+ * Quién lo llama: el checkout (src/pages/Checkout.jsx) con un POST. Devuelve
+ * 200 con `{ ok, orderId, total, giftCardDiscount, giftCardIssued }`.
+ *
+ * EL RECORRIDO COMPLETO, ETAPA POR ETAPA (leelo en orden, es lo importante):
+ *
+ *   1) Validación de forma. Chequeo que el body sea una forma válida: nombre,
+ *      teléfono, carrito, medio de pago, método de envío, formato de los
+ *      códigos. Acumulo los problemas en un array y devuelvo solo el primero.
+ *      OJO: acá se valida la FORMA, no el fondo. Que el cupón exista y tenga
+ *      saldo se verifica más adelante, contra el documento real.
+ *
+ *   2) Catálogo real. Leo cada producto una vez del documento de /products y
+ *      de ahí saco el precio (o el precio de outlet), el peso y el stock. Armo
+ *      `itemsNormalizados`: lo único que se guarda en el pedido sale de acá,
+ *      nunca de lo que mandó el navegador. De paso voy descontando un stock
+ *      "virtual" en `stockRestante` para detectar que no alcanzan.
+ *
+ *   3) Cupón. Si hay código, leo /coupons/<código>: tiene que existir, estar
+ *      activo y no haber llegado a maxUses. Después calculo el descuento con
+ *      `aplicaCoupon`, que respeta el alcance (toda la tienda, una categoría,
+ *      o una lista de productos).
+ *
+ *   3b) Gift card. Mismo criterio contra /giftCards/<código>: existe, está
+ *      activa, no venció (createdAt + 6 meses) y le queda saldo. Acá NO le
+ *      toco el saldo todavía: eso pasa en el commit.
+ *
+ *   4) Envío. Si es por Correo Argentino, peso los ítems (cada prenda tiene su
+ *      peso en el catálogo) y le pido la cotización a MiCorreo con el código
+ *      postal que eligió. El precio del flete sale de la API, no del cliente.
+ *
+ *   5) Descuentos y total. En este orden: 10% por pago en efectivo (solo si
+ *      no es envío por Correo), después el cupón, después la gift card sobre
+ *      lo que queda. El envío se suma al final y ningún descuento lo toca.
+ *
+ *   6) Commit atómico. Una sola llamada a Firestore con todas las
+ *      escrituras: stock de los productos, el pedido en /orders, la copia
+ *      pública en /orderTracking, el contador del cupón, el saldo gastado de
+ *      la gift card y, si se compró una, el documento de la gift card nueva.
+ *      Las precondiciones (currentDocument) hacen que TODO el commit se aborte
+ *      si algo cambió entre la lectura y la escritura.
+ *
+ *   7) Aviso a Telegram. Va último y protegido: si falla, el pedido ya quedó
+ *      guardado, así que la venta no se pierde. Devuelvo el 200 igual.
+ *
+ * Los errores que se devuelven tienen un código pensado para el frontend:
+ * 400 = el pedido está mal formado o un código no sirve, 409 = se agotó algo
+ * o el descuento cambió mientras comprabas (probá de nuevo), 503 = MiCorreo
+ * no responde.
+ */
 async function handleCreateOrder(body, env, cors) {
   const { orderName, orderPhone, orderAddress, items, zoneId, correoQuote, payMethod, couponCode, giftCardCode } = body;
 
@@ -1479,11 +1139,6 @@ async function handleCreateOrder(body, env, cors) {
   // `zona` es el id de la zona de precio fijo, o null cuando el envío es
   // por Correo Argentino (que no tiene precio fijo: se cotiza en MiCorreo).
   const esCorreo = zoneId === "correo";
-  // Efectivo con retiro en el local: el único caso con descuento fijo. Se
-  // define acá, arriba de todo, porque el cupón porcentual tiene que saber
-  // que su base ya viene descontada con este 10% (no se aplica un % a
-  // plata que de todas formas no se paga).
-  const pagoEfectivoLocal = payMethod === "efectivo" && !esCorreo;
   const zona = ZONAS_FIJAS[zoneId] ? zoneId : null;
   if (!zona && !esCorreo) {
     problemas.push("Método de envío inválido.");
@@ -1509,6 +1164,8 @@ async function handleCreateOrder(body, env, cors) {
     problemas.push("El código de gift card no tiene un formato válido.");
   }
   if (problemas.length) {
+    // Devuelvo UN solo problema, el primero: el frontend lo muestra tal cual
+    // ("Falta el nombre."), así que no le mando una lista que no sabe pintar.
     return new Response(JSON.stringify({ error: problemas[0] }), {
       status: 400, headers: { ...cors, "Content-Type": "application/json" },
     });
@@ -1528,41 +1185,28 @@ async function handleCreateOrder(body, env, cors) {
   }
   const idsUnicos = Array.from(idsSet);
   const productos = {};
-  for (const it of items) {
-    const id = String(it.id || "");
-    if (id === "giftcard" || id === ITEM_GIFT_CARD) continue;
+  for (const id of idsUnicos) {
     const leido = await fsGetDocRaw(env, `products/${encodeURIComponent(id)}`);
     if (!leido) {
-      return new Response(JSON.stringify({ error: "Uno de los productos ya no está disponible." }), {
+      // Producto que no existe. OJO: el texto "[GC-FIX]" que termina este
+      // mensaje se ve el cliente: quedó de una versión de prueba de esta
+      // variante y en `worker.js` no está. No lo toqué porque no me pediste
+      // tocar código, pero habría que sacarlo.
+      return new Response(JSON.stringify({ error: "Uno de los productos ya no está disponible. [GC-FIX]" }), {
         status: 400, headers: { ...cors, "Content-Type": "application/json" },
       });
     }
-    // Producto apagado desde el panel: la tienda no lo muestra, así que
-    // tampoco se puede comprar. Sin este chequeo, alguien con el carrito
-    // viejo abierto (o Armado a mano) lograba comprar una prenda oculta.
-    //
-    // Se compara contra `false` y no contra `true` a propósito: es la misma
-    // regla que usa la web (`p.active !== false`), así que los productos
-    // viejos que nunca tuvieron el campo siguen vendiéndose.
-    if (leido.data?.active === false) {
-      return new Response(JSON.stringify({ error: "Uno de los productos ya no está disponible." }), {
-        status: 400, headers: { ...cors, "Content-Type": "application/json" },
-      });
-    }
+    // Me guardo el updateTime del documento: es la precondición que va en el
+    // commit (punto 6) para detectar que el producto cambió.
     productos[id] = { ...leido.data, id, updateTime: leido.updateTime };
   }
 
+  // Stock "virtual" de este pedido: va bajando a medida que Normalizo los
+  // ítems, así que dos líneas del mismo talle en el carrito cuentan como dos
+  // unidades. El stock de Firestore no se toca acá, se toca en el commit.
   const itemsNormalizados = [];
   const stockRestante = {};
   for (const id of Object.keys(productos)) stockRestante[id] = { ...(productos[id].stock || {}) };
-
-  // Solo los productos cuyo stock baja de verdad en este pedido van al
-  // commit. Antes se escribían TODOS los que tienen stock cargado, y cada
-  // escritura iba con su precondition: si entre la lectura y el commit
-  // alguien editaba cualquier otro producto del catálogo (una foto, un
-  // precio, un stock), Firestore abortaba el commit entero y el cliente
-  // recibía "Se agotó el stock" sin que su talle se hubiera agotado.
-  const productosTocados = new Set();
 
   // Una gift card por pedido: no tiene sentido cobrar dos en el mismo
   // pedido y evita que el total de la compra se vaya en saldo en vez de
@@ -1581,9 +1225,8 @@ async function handleCreateOrder(body, env, cors) {
     const producto = productos[id];
 
     // ---- Ítem especial: la gift card que se está COMPRANDO ----
-    // El precio no viene del navegador: se valida que sea un monto entero
-    // dentro del rango permitido (cualquier monto, sin múltiplos) y se usa
-    // ese número.
+    // El precio no viene del navegador: se valida que sea un múltiplo de
+    // $5.000 dentro del rango permitido y se usa ese número.
     if (id === ITEM_GIFT_CARD) {
       const monto =
         Number(item.amount) ||
@@ -1592,7 +1235,8 @@ async function handleCreateOrder(body, env, cors) {
       const montoValido =
         Number.isInteger(monto) &&
         monto >= GIFT_CARD_MIN &&
-        monto <= GIFT_CARD_MAX;
+        monto <= GIFT_CARD_MAX &&
+        monto % GIFT_CARD_PASO === 0;
       if (qty !== 1 || !montoValido) {
         return new Response(
           JSON.stringify({ error: "El monto de la gift card no es válido." }),
@@ -1628,10 +1272,7 @@ async function handleCreateOrder(body, env, cors) {
         { status: 409, headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
-    if (hayControl) {
-      stockRestante[id][size] = disponible - qty;
-      productosTocados.add(id);
-    }
+    if (hayControl) stockRestante[id][size] = disponible - qty;
 
     itemsNormalizados.push({
       id,
@@ -1666,26 +1307,21 @@ async function handleCreateOrder(body, env, cors) {
     }
   }
 
-  // Base elegible: solo las líneas a las que aplica el cupón.
-  // El monto fijo se descuenta UNA sola vez por pedido, no por línea.
-  const baseCupon = cupon
-    ? itemsNormalizados.reduce(
-        (acc, i) => acc + aplicaCoupon({ ...cupon, type: "percent", value: 100 }, productos[i.id], i.price * i.qty),
-        0
+  // Acumulo el descuento de cada línea y lo topeo al subtotal.
+  // OJO — comportamiento distinto al de `worker.js`: acá `aplicaCoupon` se llama
+  // una vez por línea del carrito, así que un cupón de monto FIJO descuenta
+  // ese monto en cada línea en la que aplica (5 prendas elegibles = 5 descuentos
+  // de $5.000). `worker.js` calcula primero la base elegible y descuenta el
+  // monto fijo una sola vez por pedido. Con cupones porcentuales da igual.
+  const cuponDescuento = cupon
+    ? Math.min(
+        itemsNormalizados.reduce(
+          (acc, i) => acc + aplicaCoupon(cupon, productos[i.id], i.price * i.qty),
+          0
+        ),
+        subtotal
       )
     : 0;
-  // El factor del efectivo (solo para cupones PORCENTUALES): el % se
-  // calcula sobre lo que el cliente va a pagar en serio (ya con el 10% de
-  // efectivo descontado), no sobre el subtotal completo. Sin esto,
-  // efectivo 10% + cupón 20% sumaban 30% en vez de "10% y después 20% de
-  // lo que queda" (28%). El cupón FIJO no se toca: son pesos duros, el
-  // descuento del efectivo no le reduce el valor.
-  const factorCuponEfectivo = pagoEfectivoLocal ? 1 - EFECTIVO_DESCUENTO : 1;
-  const cuponDescuento = !cupon
-    ? 0
-    : cupon.type === "percent"
-      ? Math.min(Math.round((baseCupon * factorCuponEfectivo * (Number(cupon.value) || 0)) / 100), baseCupon)
-      : Math.min(Number(cupon.value) || 0, baseCupon);
 
   // ---- 3b) Gift card, validada contra el documento real ----
   // El navegador solo manda el código escrito. Si existe, está activa,
@@ -1735,28 +1371,7 @@ async function handleCreateOrder(body, env, cors) {
 
   if (esCorreo) {
     const peso = itemsNormalizados.reduce((acc, i) => acc + (Number(i.weight) || 400) * i.qty, 0);
-
-    // Si MiCorreo está caído o las credenciales no sirven, antes esto
-    // reventaba con un 500 "Probá de nuevo" que no decía nada. Ahora el
-    // cliente sabe que el problema es del servicio de correo y que puede
-    // elegir retiro en el local.
-    let cotizacion;
-    try {
-      cotizacion = await cotizarCorreo(env, correoQuote.postalCode, peso);
-    } catch (err) {
-      console.error(
-        "[createOrder] No se pudo cotizar con Correo Argentino:",
-        err?.message || err,
-        err?.stack ? `\n${err.stack}` : ""
-      );
-      return new Response(
-        JSON.stringify({
-          error: "No pudimos cotizar el envío con Correo Argentino en este momento. Probá de nuevo en un rato o elegí retiro en el local.",
-        }),
-        { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
-      );
-    }
-
+    const cotizacion = await cotizarCorreo(env, correoQuote.postalCode, peso);
     const precio = cotizacion[correoQuote.type];
     if (precio == null) {
       return new Response(
@@ -1776,15 +1391,13 @@ async function handleCreateOrder(body, env, cors) {
   }
 
   // ---- 5) Descuentos y total ----
-  // El único descuento fijo es el 10% por pagar en efectivo y retirar en
-  // el local (en Correo el pago no cambia el precio, y en el checkout el
-  // efectivo va deshabilitado para envío).
-  const descuento = pagoEfectivoLocal ? Math.round(subtotal * EFECTIVO_DESCUENTO) : 0;
+  // El 10% es el único descuento fijo (pago en efectivo y NO por Correo,
+  // que en el checkout va deshabilitado).
+  const descuento = payMethod === "efectivo" && !esCorreo ? Math.round(subtotal * 0.1) : 0;
 
-  // ORDEN DE LOS DESCUENTOS: primero el efectivo y el cupón, después la
-  // gift card. O sea, la gift card se aplica sobre lo que queda después
-  // del 10% efectivo y del cupón (nunca sobre el subtotal completo), y el
-  // cupón porcentual ya vino calculado sobre la base sin el 10% efectivo.
+  // ORDEN DE LOS DESCUENTOS: primero el cupón, después la gift card.
+  // O sea, la gift card se aplica sobre lo que queda después del cupón
+  // (y del 10% efectivo), nunca sobre el subtotal completo.
   // El envío queda afuera: la gift card descuenta prendas, no el flete.
   const baseDescontable = Math.max(0, subtotal - descuento - cuponDescuento);
   const giftCardDescuento = giftCard ? Math.min(giftCardSaldo, baseDescontable) : 0;
@@ -1847,12 +1460,8 @@ async function handleCreateOrder(body, env, cors) {
   // El precondition (currentDocument) hace que TODO el commit se aborte
   // si el documento cambió entre la lectura y ahora: es lo que impide
   // que dos personas se lleven el último talle.
-  //
-  // Solo entran los productos del carrito. Poner el catálogo entero acá
-  // hacía que editar cualquier otra prenda (incluso desde el panel, con
-  // una foto) abortara el commit de un pedido que no la tocaba, y el
-  // cliente veía un "se agotó el stock" que era mentira.
-  for (const id of productosTocados) {
+  for (const id of Object.keys(productos)) {
+    if (Object.keys(stockRestante[id]).length === 0) continue;
     writes.push({
       update: { name: `${FS_PATH}/products/${encodeURIComponent(id)}`, fields: fsFields({ stock: stockRestante[id] }) },
       updateMask: { fieldPaths: ["stock"] },
@@ -1898,17 +1507,8 @@ async function handleCreateOrder(body, env, cors) {
   }
 
   // Gift card comprada en este pedido: se crea el documento con el saldo
-  // cargado y ACTIVA, porque el comprador ya la pagó y se le muestra el
-  // código en la pantalla de "gracias" para usarlo o regalarlo (si
-  // naciera inactive, el checkout la rechazaría siempre:vería
-  // `checkGiftCard` y `giftCard.active !== true` más arriba).
-  //
-  // Sin updateMask, así que si el código ya existiera Firestore rechaza el
-  // commit entero (y el pedido tampoco se crearía).
-  //
-  // NO se guarda el nombre del comprador: /giftCards tiene lectura pública
-  // por código (`allow get: if true`), así que cualquier nota con datos
-  // personales quedaría a la vista de quien tuviera el código.
+  // cargado. Sin updateMask, así que si el código ya existiera Firestore
+  // rechaza el commit entero (y el pedido tampoco se crearía).
   if (giftCardEmitida) {
     writes.push({
       update: {
@@ -1918,6 +1518,7 @@ async function handleCreateOrder(body, env, cors) {
           usedAmount: 0,
           active: true,
           createdAt: fsTimestamp(ahora),
+          note: orderName.trim().slice(0, 80),
         }),
       },
     });
@@ -1932,22 +1533,7 @@ async function handleCreateOrder(body, env, cors) {
         { status: 409, headers: { ...cors, "Content-Type": "application/json" } }
       );
     }
-
-    // Cualquier otro error de Firestore (permisos, cuota, documento
-    // inválido) se comía como un 500 sin explicación. Se loguea entero y
-    // se le dice al cliente que no se perdió nada: el commit es atómico,
-    // así que si falló no se creó el pedido ni se tocó el stock.
-    console.error(
-      `[createOrder] Commit falló (status=${err.status}):`,
-      err?.message || err,
-      err?.stack ? `\n${err.stack}` : ""
-    );
-    return new Response(
-      JSON.stringify({
-        error: "No pudimos guardar el pedido. No se cobró nada y el stock quedó como estaba; probá de nuevo en un momento.",
-      }),
-      { status: 503, headers: { ...cors, "Content-Type": "application/json" } }
-    );
+    throw err;
   }
 
   // ---- 7) Aviso a Telegram. Si falla, el pedido ya quedó guardado ----
@@ -1975,6 +1561,9 @@ async function handleCreateOrder(body, env, cors) {
    Pide un token nuevo en cada request. Para el volumen de una
    tienda chica esto es más que suficiente y evita el lío de
    guardar el token en algún lado (KV) y manejar su vencimiento.
+   ------------------------------------------------------------
+   El token va como cabecera "Authorization: Basic ..." con el usuario y la
+   contraseña en base64; no es lo mismo que el Bearer que usan las otras APIs.
    ============================================================ */
 async function getCorreoToken(env) {
   const base = env.CORREO_BASE_URL; // API de producción (va en wrangler.jsonc)
@@ -1992,6 +1581,11 @@ async function getCorreoToken(env) {
 
 /* ============================================================
    ACCIÓN: rates — cotiza el envío a un código postal
+   ------------------------------------------------------------
+   Es la acción que usa el checkout para mostrar los dos precios
+   (a domicilio y a sucursal) mientras el cliente escribe el CP.
+   Ojo con el status 502: no es que hayaFallado el Worker, es que
+   MiCorreo no pudo cotizar. Por eso el mensaje es de 502 (gateway).
    ============================================================ */
 async function handleRates(body, env, cors) {
   const { postalCodeDestination, weight, height, width, length } = body;
@@ -2070,6 +1664,10 @@ async function cotizarCorreo(env, postalCodeDestination, pesoGramos) {
 
 /* ============================================================
    ACCIÓN: agencies — sucursales de Correo de una provincia
+   ------------------------------------------------------------
+   El checkout la usa para el desplegable de "retiro en sucursal":
+   le pido a MiCorreo la lista y le devuelvo al sitio solo el
+   código, el nombre, la ciudad y la dirección.
    ============================================================ */
 async function handleAgencies(body, env, cors) {
   const { provinceCode } = body;
@@ -2102,17 +1700,30 @@ async function handleAgencies(body, env, cors) {
   });
 }
 
+/**
+ * Formatea un número como pesos argentinos sin decimales ("$ 25.000").
+ * Lo usan los avisos de Telegram y el panel; los cálculos van todos en números.
+ */
 function fmt(n) {
   const num = Number(n) || 0;
   return num.toLocaleString("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 }
 
+/**
+ * Convierte el mapa de campos de la API REST de Firestore en un objeto normal
+ * de JavaScript. Es la operación inversa de `fsFields`: leo lo que escribí.
+ */
 function parseFirestoreFields(fields) {
   const out = {};
   for (const key in fields || {}) out[key] = parseValue(fields[key]);
   return out;
 }
 
+/**
+ * Convierte UN valor de Firestore a JavaScript. La API REST no manda un
+ * `5` pelado: manda `{ integerValue: "5" }`, y cada tipo viene con su clave.
+ * Por eso el if de cada tipo: es un "desarmar la etiqueta" del que vino.
+ */
 function parseValue(v) {
   if (v.stringValue !== undefined) return v.stringValue;
   if (v.integerValue !== undefined) return Number(v.integerValue);
