@@ -970,6 +970,7 @@ const RE_GIFT_CARD = /^SKUL-[A-Z0-9]{6}$/;
 // así que no se busca en /products.
 const ITEM_GIFT_CARD = "giftcard";
 const NOMBRE_ITEM_GIFT_CARD = "Gift Card SKUL";
+const EFECTIVO_DESCUENTO = 0.1;
 
 /** Precio que corresponde a una prenda (outlet si está en outlet). */
 // NUNCA se usa el precio que manda el navegador: el de acá sale del documento
@@ -1311,21 +1312,20 @@ async function handleCreateOrder(body, env, cors) {
     }
   }
 
-  // Acumulo el descuento de cada línea y lo topeo al subtotal.
-  // OJO — comportamiento distinto al de `worker.js`: acá `aplicaCoupon` se llama
-  // una vez por línea del carrito, así que un cupón de monto FIJO descuenta
-  // ese monto en cada línea en la que aplica (5 prendas elegibles = 5 descuentos
-  // de $5.000). `worker.js` calcula primero la base elegible y descuenta el
-  // monto fijo una sola vez por pedido. Con cupones porcentuales da igual.
-  const cuponDescuento = cupon
-    ? Math.min(
-        itemsNormalizados.reduce(
-          (acc, i) => acc + aplicaCoupon(cupon, productos[i.id], i.price * i.qty),
-          0
-        ),
-        subtotal
+  // Base elegible: solo las líneas a las que aplica el cupón.
+  const baseCupon = cupon
+    ? itemsNormalizados.reduce(
+        (acc, i) => acc + aplicaCoupon({ ...cupon, type: "percent", value: 100 }, productos[i.id], i.price * i.qty),
+        0
       )
     : 0;
+  const pagoEfectivoLocal = payMethod === "efectivo" && !esCorreo;
+  const factorCuponEfectivo = pagoEfectivoLocal ? 1 - EFECTIVO_DESCUENTO : 1;
+  const cuponDescuento = !cupon
+    ? 0
+    : cupon.type === "percent"
+      ? Math.min(Math.round((baseCupon * factorCuponEfectivo * (Number(cupon.value) || 0)) / 100), baseCupon)
+      : Math.min(Number(cupon.value) || 0, baseCupon);
 
   // ---- 3b) Gift card, validada contra el documento real ----
   // El navegador solo manda el código escrito. Si existe, está activa,
