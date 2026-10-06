@@ -999,7 +999,11 @@ function aplicaCoupon(cupon, producto, importe) {
  * sin espacios y en mayúsculas (la gente lo escribe "skul abc123").
  */
 function normGiftCard(codigo) {
-  return String(codigo || "").replace(/\s+/g, "").toUpperCase();
+  let s = String(codigo || "").replace(/\s+/g, "").toUpperCase();
+  if (s.startsWith("SKUL-")) return s;
+  if (s.startsWith("SKUL") && s.length === 4 + 6) return "SKUL-" + s.slice(4);
+  if (/^[A-Z0-9]{6}$/.test(s)) return "SKUL-" + s;
+  return s;
 }
 
 /**
@@ -1518,7 +1522,7 @@ async function handleCreateOrder(body, env, cors) {
           usedAmount: 0,
           active: true,
           createdAt: fsTimestamp(ahora),
-          note: orderName.trim().slice(0, 80),
+
         }),
       },
     });
