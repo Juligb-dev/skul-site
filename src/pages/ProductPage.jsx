@@ -71,7 +71,20 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
   const tones = [baseTone, Math.min(1, baseTone + 0.08), Math.max(0.5, baseTone - 0.08), baseTone];
 
   const photos = product.photos || [];
-  const hasPhotos = photos.length > 0;
+  const videos = product.videos || [];
+  // Tira de medios de la ficha: primero las fotos (la portada del
+  // catálogo sigue siendo photos[0]) y después los videos. Cada entrada
+  // lleva su tipo para que el escenario y el lightbox sepan si dibujar
+  // un <img> con zoom o un <video> con controles.
+  const media = [
+    ...photos.map((src) => ({ tipo: "foto", src })),
+    ...videos.map((src) => ({ tipo: "video", src })),
+  ];
+  const hasMedia = media.length > 0;
+  // Medio visible ahora: el que marca la miniatura activa, con respaldo
+  // al primero por si el índice se quedó corto (por ejemplo, si un
+  // producto perdió fotos entre render y render).
+  const actual = media[photo] || media[0];
   const colors = product.colors || [];
   const availableSizes = product.sizes || [];
   const stock = product.stock || {};
@@ -94,8 +107,9 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
   // siempre entre 0 y 1 así el punto de la barrita nunca se sale.
   const fit = typeof product.fit === "number" ? Math.min(1, Math.max(0, product.fit)) : 0.5;
 
-  // Cuántas miniaturas dibujo: las fotos reales, o las texturas falsas.
-  const thumbCount = hasPhotos ? photos.length : tones.length;
+  // Cuántas miniaturas dibujo: los medios reales (fotos + videos), o las
+  // texturas falsas.
+  const thumbCount = hasMedia ? media.length : tones.length;
   // OJO: `totalPhotos` no se usa en ningún lado, quedó de una versión
   // anterior. No lo toco porque no es mi turno de limpiar, pero
   // verifiquémoslo: si algo lo necesita, que lo vuelva a escribir.
@@ -131,11 +145,15 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                   key={i}
                   className={photo === i ? "is-active" : ""}
                   onClick={() => setPhoto(i)}
-                  aria-label={`Foto ${i + 1}`}
+                  aria-label={media[i]?.tipo === "video" ? `Video ${i + 1}` : `Foto ${i + 1}`}
                 >
-                  {hasPhotos
-                    ? <img src={photos[i]} alt="" />
-                    : <Fabric tone={tones[i]} dark={product.nrs} angle={angles[i]} style={{ width: "100%", height: "100%" }} />}
+                  {hasMedia ? (
+                    media[i].tipo === "video"
+                      ? <video src={media[i].src} muted playsInline preload="metadata" />
+                      : <img src={media[i].src} alt="" />
+                  ) : (
+                    <Fabric tone={tones[i]} dark={product.nrs} angle={angles[i]} style={{ width: "100%", height: "100%" }} />
+                  )}
                 </button>
               ))}
             </div>
@@ -154,9 +172,24 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
               onMouseEnter={() => setZooming(true)}
               onMouseLeave={() => setZooming(false)}
             >
-              {hasPhotos ? (
+              {!hasMedia ? (
+                <Fabric tone={tones[photo]} dark={product.nrs} angle={angles[photo]} style={{ width: "100%", height: "100%", filter: soldOut ? "grayscale(1)" : "none" }} />
+              ) : actual.tipo === "video" ? (
+                /* Video: controles nativos del navegador, sin zoom (el
+                   click tendría que servir para pausar/bajar volumen, no
+                   para abrir el lightbox — por eso stopPropagation). */
+                <video
+                  src={actual.src}
+                  controls
+                  autoPlay
+                  loop
+                  playsInline
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ filter: soldOut ? "grayscale(1)" : "none" }}
+                />
+              ) : (
                 <img
-                  src={photos[photo] || photos[0]}
+                  src={actual.src}
                   alt={product.name}
                   style={{
                     filter: soldOut ? "grayscale(1)" : "none",
@@ -165,8 +198,6 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                     transition: zooming ? "none" : "transform .35s ease",
                   }}
                 />
-              ) : (
-                <Fabric tone={tones[photo]} dark={product.nrs} angle={angles[photo]} style={{ width: "100%", height: "100%", filter: soldOut ? "grayscale(1)" : "none" }} />
               )}
               <div className="rf-pdp-badges">
                 {soldOut && <span>SIN STOCK</span>}
@@ -360,8 +391,19 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
           <button className="rf-pdp-lightbox-close" onClick={() => setLightboxOpen(false)} aria-label="Cerrar">
             <X size={18} />
           </button>
-          {hasPhotos ? (
-            <img src={photos[photo] || photos[0]} alt={product.name} onClick={(e) => e.stopPropagation()} />
+          {hasMedia ? (
+            actual.tipo === "video" ? (
+              <video
+                src={actual.src}
+                controls
+                autoPlay
+                playsInline
+                onClick={(e) => e.stopPropagation()}
+                style={{ maxWidth: "92vw", maxHeight: "88vh" }}
+              />
+            ) : (
+              <img src={actual.src} alt={product.name} onClick={(e) => e.stopPropagation()} />
+            )
           ) : (
             <div className="rf-pdp-lightbox-fabric" onClick={(e) => e.stopPropagation()}>
               <Fabric tone={tones[photo]} dark={product.nrs} angle={angles[photo]} style={{ height: "100%" }} />

@@ -99,6 +99,19 @@ export async function uploadToCloudinary(fileOrDataUrl) {
   //    multipart/form-data es el formato que entiende un <form> con
   //    archivos: en vez de JSON con comillas, son bloques con un
   //    nombre, una línea de separación y el contenido crudo.
+  // ¿Es un video? Cloudinary guarda imágenes y videos en endpoints
+  // distintos (image/upload vs video/upload): mandar un video al endpoint
+  // de imagen lo hace fallar con un error raro. El MIME del File nos dice
+  // de qué se trata. Un data URL (string) se toma como imagen, que es el
+  // caso histórico de esta función.
+  const esVideo = fileOrDataUrl?.type?.startsWith?.("video/") || false;
+  // Los planes gratis de Cloudinary no aceptan archivos de video de más
+  // de ~100 MB. Preferimos cortar acá con un mensaje claro antes de que
+  // la subida falle a mitad de camino.
+  if (esVideo && fileOrDataUrl?.size > 100 * 1024 * 1024) {
+    throw new Error("El video pesa más de 100 MB. Comprimilo (por ejemplo con Handbrake o CapCut) y probá de nuevo.");
+  }
+
   const form = new FormData();
   form.append("file", fileOrDataUrl);
   // La api_key sí es pública (se publica en todos los sitios que usan
@@ -109,15 +122,17 @@ export async function uploadToCloudinary(fileOrDataUrl) {
   // Carpeta destino dentro de la cuenta, para no mezclarla con otras.
   form.append("folder", firma.folder);
 
-  // La URL tiene esta forma porque el nombre de la cuenta es parte de
-  // la dirección: v1_1 es la versión de la API, image/upload dice que
-  // es una imagen y que la subimos (no que la borramos o la transformamos).
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${firma.cloudName}/image/upload`, {
+  // La URL tiene esta forma porque el nombre de la cuenta es parte de la
+  // dirección: v1_1 es la versión de la API, image/upload o video/upload
+  // dicen qué tipo de archivo subimos (no que lo borramos o transformamos).
+  // OJO: la firma del Worker solo cubre folder+timestamp, así que cambiar
+  // el endpoint según el tipo NO invalida la firma.
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${firma.cloudName}/${esVideo ? "video" : "image"}/upload`, {
     method: "POST",
     body: form,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error?.message || "No se pudo subir la imagen a Cloudinary");
+  if (!res.ok) throw new Error(data?.error?.message || `No se pudo subir el ${esVideo ? "video" : "imagen"} a Cloudinary`);
   // secure_url es la versión https; secure_http_address sería la misma
   // con certificado. Devuelvo esta porque es la que se guarda en
   // Firestore y se muestra en el <img> del catálogo.

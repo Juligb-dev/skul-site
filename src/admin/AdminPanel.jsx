@@ -145,6 +145,7 @@ const EMPTY_FORM = {
   fit: 0.5,
   nrs: false,
   photos: [],
+  videos: [],
   photoColor: "#292722",
   description: "",
   composition: "",
@@ -1133,6 +1134,9 @@ function ProductosTab() {
   // Flags de estado visual: subida de fotos en curso, escritura en
   // curso, error a mostrar y el "Guardado ✓" de 1,8 segundos.
   const [uploading, setUploading] = useState(false);
+  // Estado aparte para los videos, para que subir un video no muestre
+  // "Subiendo…" en el campo de fotos y viceversa.
+  const [uploadingVideos, setUploadingVideos] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -1323,6 +1327,7 @@ function ProductosTab() {
       fit: typeof p.fit === "number" ? p.fit : 0.5,
       nrs: !!p.nrs,
       photos: p.photos || [],
+      videos: p.videos || [],
       photoColor: p.photoColor || "#292722",
       description: p.description || "",
       composition: p.composition || "",
@@ -1373,6 +1378,39 @@ function ProductosTab() {
       alert("No se pudo subir una de las imágenes. Verificá la configuración de Cloudinary.");
     } finally {
       setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  /**
+   * HANDLEVIDEOFILES — subir videos de la prenda.
+   *
+   * Mismo flujo que handleFiles pero para videos: van a Cloudinary (que
+   * guarda video aparte de las fotos) y las URLs quedan en el array
+   * `videos` del formulario, que recién se escribe en Firestore cuando
+   * el dueño guarda el producto. El input acepta solo video/*, así que
+   * no se pueden colar fotos acá.
+   */
+  const handleVideoFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setUploadingVideos(true);
+    try {
+      const uploadedUrls = [];
+      for (const file of files) {
+        const url = await uploadToCloudinary(file);
+        uploadedUrls.push(url);
+      }
+      setForm((f) => ({
+        ...f,
+        videos: [...(f.videos || []), ...uploadedUrls],
+      }));
+    } catch (error) {
+      console.error("Error procesando video:", error);
+      alert(error?.message || "No se pudo subir el video. Verificá la configuración de Cloudinary.");
+    } finally {
+      setUploadingVideos(false);
       e.target.value = "";
     }
   };
@@ -1476,6 +1514,28 @@ function ProductosTab() {
                 <button
                   type="button"
                   onClick={() => setForm((f) => ({ ...f, photos: f.photos.filter((_, idx) => idx !== i) }))}
+                  style={{ position: "absolute", top: -6, right: -6, background: "var(--black)", color: "var(--white)", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: 11, lineHeight: 1, cursor: "pointer" }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </Field>
+        {/* Videos (opcional): quedan después de las fotos en la tira de
+            miniaturas de la ficha y se ven en el escenario grande con
+            controles nativos del navegador. Límite: 100 MB por archivo
+            (lo corta Cloudinary) — si pesa más, comprimilo antes. */}
+        <Field label="Videos del producto (opcional)">
+          <input type="file" accept="video/*" multiple onChange={handleVideoFiles} disabled={uploadingVideos} />
+          {uploadingVideos && <p style={{ fontSize: 12, color: "var(--grey-3)" }}>Subiendo video…</p>}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            {(form.videos || []).map((url, i) => (
+              <div key={i} style={{ position: "relative" }}>
+                <video src={url} muted playsInline preload="metadata" style={{ width: 60, height: 60, objectFit: "cover", border: "1px solid var(--black)", display: "block" }} />
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, videos: (f.videos || []).filter((_, idx) => idx !== i) }))}
                   style={{ position: "absolute", top: -6, right: -6, background: "var(--black)", color: "var(--white)", border: "none", borderRadius: "50%", width: 18, height: 18, fontSize: 11, lineHeight: 1, cursor: "pointer" }}
                 >
                   ×
