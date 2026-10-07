@@ -37,6 +37,7 @@ const PLANTILLAS = [
   { id: "tag", nombre: "TAG DE PRECIO" },
   { id: "postal", nombre: "POSTAL" },
   { id: "boletin", nombre: "BOLETÍN" },
+  { id: "archivo", nombre: "ARCHIVO 2 FOTOS" },
 ];
 
 // Colores de marca, hardcodeados a propósito: el flyer tiene que verse
@@ -50,12 +51,41 @@ const MIEL = "#d8a24a";
 const HUMO = "#f2efe6";
 
 const MONO = "'SF Mono','Menlo','Consolas',monospace"; // números/etiquetas
+const SOMBRA = "0 14px 26px rgba(0,0,0,.36)"; // foto tirada sobre el papel
 
-/* Marionetas de texto compartidas, para que las tres plantillas
-   hablen el mismo idioma visual. */
+/* Marionetas de texto compartidas, para que las plantillas hablen el
+   mismo idioma visual. */
 const T = {
   o: (f) => ({ fontFamily: "'Arimo','Helvetica Neue',Arial,sans-serif", fontWeight: 700, letterSpacing: f || ".12em", textTransform: "uppercase" }),
   m: (f) => ({ fontFamily: MONO, letterSpacing: f || ".18em" }),
+};
+
+/** Cinta de papel para clavar las fotos (se pega sobre la esquina). */
+const Tape = ({ side = "tr", rot = "8deg", color = "rgba(213,188,138,.55)" }) => {
+  const pos = {
+    tl: { left: -12, top: -10 },
+    tr: { right: -12, top: -10 },
+    bl: { left: -14, bottom: -12 },
+    br: { right: -14, bottom: -12 },
+  }[side];
+  return <div style={{ position: "absolute", width: 94, height: 22, background: color, transform: `rotate(${rot})`, ...pos }} />;
+};
+
+/** La foto de la prenda, tratada para no quedar como un bloque duro:
+ *  leve rotación (tira de fotos), sombra tirada y una cinta en una
+ *  punta. Con `polaroid`, un marco claro afuera tipo foto clavada. */
+const Foto = ({ src, rot = "-2.5deg", h = 350, frame, redondeo = 2, polaroid = false, tape = null, pos = "center", esp = 0 }) => {
+  const caja = polaroid
+    ? { padding: 10, paddingBottom: 22, background: "#f3ecdd", boxShadow: SOMBRA, borderRadius: 2 }
+    : { boxShadow: SOMBRA };
+  return (
+    <div style={{ transform: `rotate(${rot})`, position: "relative", boxSizing: "border-box", borderRadius: redondeo, ...caja, lineHeight: 0 }}>
+      <div style={{ width: "100%", height: h + esp, border: frame || "1px solid " + CENIZA, borderRadius: redondeo, overflow: "hidden", background: CARBON }}>
+        <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: pos }} {...CN} />
+      </div>
+      {tape && <Tape side={tape} />}
+    </div>
+  );
 };
 
 /** Una plantilla por función. Todas reciben lo mismo (producto,
@@ -75,9 +105,11 @@ const PlantillaTag = ({ p, titulo, numero, precio }) => (
       <span style={T.o("24px")}>SKUL</span>
       <span style={T.m("8px")}>KSSS—{numero}</span>
     </div>
-    {/* la prenda: siempre recta, siempre arriba */}
-    <div style={{ width: "100%", height: 358, borderRadius: 4, border: "1px solid " + CENIZA, overflow: "hidden", background: CARBON }}>
-      <img src={p.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} {...CN} />
+    {/* la prenda, clavada con cinta y medio torcida: foto de taller */}
+    <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+      <div style={{ width: "88%" }}>
+        <Foto src={p.photos[0]} rot="-3deg" h={316} frame="1px solid #45403a" polaroid tape="tr" />
+      </div>
     </div>
     <div style={{ flex: 1 }} />
     {/* nombre + precio con descuento al lado */}
@@ -106,14 +138,21 @@ const PlantillaPostal = ({ p, titulo, numero, precio }) => (
   }}>
     {/* titular grande arriba, número en la punta */}
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-      <h2 style={{ ...T.o("10px"), fontSize: 58, margin: 0, lineHeight: 1 }}>{titulo}</h2>
+      <h2 style={{ ...T.o("10px"), fontSize: 56, margin: 0, lineHeight: 1 }}>{titulo}</h2>
       <span style={{ ...T.m("10px"), fontSize: 14, color: "#7a6f5b" }}>Nº {numero}</span>
     </div>
     <div style={{ width: 74, height: 5, background: "#12100c", marginTop: 14 }} />
-    {/* foto a sangre de borde a borde, con filete negro arriba y abajo */}
-    <div style={{ margin: "18px -26px 0", borderTop: "3px solid #12100c", borderBottom: "3px solid #12100c", height: 360, overflow: "hidden" }}>
-      <img src={p.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} {...CN} />
+    {/* la foto, una postal apoyada en el papel: torcida, clavada y con
+        el pie de foto escrito debajo (tipo polaroid) */}
+    <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
+      <div style={{ width: "92%" }}>
+        <Foto src={p.photos[0]} rot="-1.5deg" h={318} frame="2px solid #12100c" polaroid tape="tl" pos="center top" />
+      </div>
     </div>
+    <div style={{ display: "flex", justifyContent: "center", marginTop: -14, marginLeft: 64, ...T.m("10px"), fontSize: 11, color: "#7a6f5b" }}>
+      {`${p.name.toUpperCase()} — DROP ${titulo}`}
+    </div>
+    <div style={{ flex: 1 }} />
     {/* datos del drop */}
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 18 }}>
       <div>
@@ -122,9 +161,8 @@ const PlantillaPostal = ({ p, titulo, numero, precio }) => (
       </div>
       <p style={{ ...T.o("16px"), fontSize: 13, color: "#7a6f5b", margin: 0 }}>EFECTIVO 10% OFF</p>
     </div>
-    <div style={{ flex: 1 }} />
     {/* barra negra de cierre */}
-    <div style={{ margin: "0 -26px -26px", background: "#12100c", color: HUMO, padding: "18px 26px", display: "flex", justifyContent: "space-between", ...T.o("14px"), fontSize: 12 }}>
+    <div style={{ margin: "16px -26px -26px", background: "#12100c", color: HUMO, padding: "18px 26px", display: "flex", justifyContent: "space-between", ...T.o("14px"), fontSize: 12 }}>
       <span>SKUL STREETWEAR</span>
       <span style={T.m("12px")}>SKULLT.WEB.APP</span>
     </div>
@@ -141,13 +179,15 @@ const PlantillaBoletin = ({ p, titulo, numero, precio }) => (
       <span>Nº {numero}</span>
       <span style={T.o("20px")}>SKUL</span>
     </div>
-    {/* titular + raya de acento */}
-    <h2 style={{ ...T.o("8px"), fontSize: 52, margin: "40px 0 0", lineHeight: 1 }}>{titulo}</h2>
-    <div style={{ width: 84, height: 4, background: MIEL, marginTop: 16 }} />
-    {/* foto con marco blanco fino, corrida a la derecha (asimetría de fanzine) */}
-    <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 26 }}>
-      <div style={{ width: "86%", height: 330, border: "2px solid " + HUMO, overflow: "hidden" }}>
-        <img src={p.photos[0]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} {...CN} />
+    {/* titular + raya de acento, con el título montado sobre la foto */}
+    <div style={{ position: "relative", marginTop: 26 }}>
+      <h2 style={{ ...T.o("8px"), fontSize: 50, margin: 0, lineHeight: 1 }}>{titulo}</h2>
+      <div style={{ width: 84, height: 4, background: MIEL, marginTop: 16 }} />
+      {/* foto corrida a la derecha, torcida y con cinta (fanzine) */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+        <div style={{ width: "84%", transform: "scale(.96)" }}>
+          <Foto src={p.photos[0]} rot="-3deg" h={312} frame={"2px solid " + HUMO} tape="bl" pos="center top" />
+        </div>
       </div>
     </div>
     <div style={{ flex: 1 }} />
@@ -161,7 +201,52 @@ const PlantillaBoletin = ({ p, titulo, numero, precio }) => (
   </div>
 );
 
-const PLANTILLA_COMP = { tag: PlantillaTag, postal: PlantillaPostal, boletin: PlantillaBoletin };
+/* Collage con dos fotos (usa la 2da si la prenda tiene), desfasadas
+   y montadas una sobre la otra: el look de moodboard, nada rígido. */
+const PlantillaArchivo = ({ p, titulo, numero, precio }) => (
+  <div style={{
+    width: DIS, height: ALT, background: PAPEL, color: "#12100c", padding: 26,
+    display: "flex", flexDirection: "column",
+  }}>
+    {/* cabecera: marca + número */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <span style={{ ...T.o("22px"), fontSize: 30 }}>SKUL</span>
+      <span style={{ ...T.m("10px"), fontSize: 13, color: "#7a6f5b" }}>Nº {numero}</span>
+    </div>
+    {/* titular */}
+    <h2 style={{ ...T.o("8px"), fontSize: 46, margin: "10px 0 0", lineHeight: 1 }}>{titulo}</h2>
+    <div style={{ width: 64, height: 5, background: "#12100c", marginTop: 12 }} />
+    {/* las dos fotos, montadas en diagonal */}
+    <div style={{ position: "relative", marginTop: 16, height: 400 }}>
+      <div style={{ position: "absolute", left: 0, top: 0, width: "56%", zIndex: 2 }}>
+        <Foto src={p.photos[0]} rot="-2deg" h={300} frame="1px solid #12100c" tape="tl" />
+      </div>
+      <div style={{ position: "absolute", right: 0, top: 84, width: "42%", zIndex: 3 }}>
+        <Foto src={p.photos[1] || p.photos[0]} rot="3deg" h={220} frame="1px solid #12100c" tape="br" pos="center top" />
+      </div>
+      {/* sello de fanzine al costado */}
+      <div style={{ position: "absolute", left: 8, bottom: 4, zIndex: 4, ...T.m("10px"), fontSize: 10, color: MIEL, transform: "rotate(-6deg)" }}>
+        [ 10% OFF EFECTIVO ]
+      </div>
+    </div>
+    <div style={{ flex: 1 }} />
+    {/* datos del drop */}
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+      <div>
+        <p style={{ ...T.o("12px"), fontSize: 19, margin: 0 }}>{p.name}</p>
+        {precio && <p style={{ ...T.m("8px"), fontSize: 28, margin: "6px 0 0" }}>{fmt(p.transferPrice || p.basePrice)}</p>}
+      </div>
+      <p style={{ ...T.o("16px"), fontSize: 12, color: "#7a6f5b", margin: 0 }}>LOOKBOOK DROP {numero}</p>
+    </div>
+    {/* línea de cierre */}
+    <div style={{ borderTop: "1px solid " + CENIZA, marginTop: 16, paddingTop: 10, display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: "#7a6f5b" }}>
+      <span>SKUL STREETWEAR</span>
+      <span>LOS TOLDOS · BUENOS AIRES</span>
+    </div>
+  </div>
+);
+
+const PLANTILLA_COMP = { tag: PlantillaTag, postal: PlantillaPostal, boletin: PlantillaBoletin, archivo: PlantillaArchivo };
 
 export default function FlyersTab() {
   const { products } = useProducts();
@@ -203,8 +288,9 @@ export default function FlyersTab() {
         Flyers para Instagram Drop
       </p>
       <p style={{ fontSize: 12.5, color: "#5c5a52", margin: "-8px 0 18px", maxWidth: 640, lineHeight: 1.5 }}>
-        Se exporta en 1080×1350 (historia / portada vertical). Elegí prenda, plantilla y textos; el precio
-        opcional usa el de transferencia. Cada plantilla compone distinto para que no salgan dos flyers iguales.
+        Se exporta en 1080×1350 (historia / portada vertical). Cuatro composiciones distintas, con la foto tirada,
+        clavada con cinta y con galería; "Archivo 2 fotos" usa la segunda foto de la prenda si está cargada. El precio
+        es opcional y usa el de transferencia.
       </p>
 
       <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
