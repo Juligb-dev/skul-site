@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { toPng } from "html-to-image";
 import { useProducts } from "../hooks/useProducts.js";
 import { fmt } from "../utils/format.js";
@@ -7,20 +7,27 @@ import { fmt } from "../utils/format.js";
  *  FLYERSTAB — generador de flyers para las historias de Instagram.
  *  ------------------------------------------------------------
  *
- *  Qué es: una pestaña más del panel. El dueño elige una prenda,
- *  una de las tres plantillas (todas distintas entre sí), retoca el
- *  título y el número de drop, y exporta un PNG de 1080×1350 (el
- *  tamaño de una historia/portada vertical de Instagram) listo para
+ *  Qué es: una pestaña más del panel. El dueño elige una prenda, una
+ *  plantilla, retoca el título y el número de drop, y exporta un PNG
+ *  de 1080×1350 (historia / portada vertical de Instagram) listo para
  *  postear.
  *
- *  Por qué existe: los drops salen seguido y hacer el flyer a mano
- *  cada vez lleva media hora. Acá se hace en un minuto, pero SIN
- *  caer en el look de plantilla genérica: solo tipografía pesada,
- *  líneas finas, detalles de barcode/etiqueta y la textura de marca
- *  (public/editorial). No hay gradientes de moda, ni imágenes de
- *  stock, ni fuentes decorativas: lo que destaca es la foto real de
- *  la prenda. Y como son tres plantillas + textos editables, nunca
- *  sale dos veces el mismo flyer.
+ *  CÓMO EVITA EL LOOK GENÉRICO: no hay fotos torcidas, ni cinta de
+ *  enmascarar, ni polaroids: todas muletillas de plantilla IA. El
+ *  sistema visual es el mismo que ya usa la tienda — tipografía
+ *  pesada alineada, líneas finas, numeración, papel y una textura de
+ *  marca (public/editorial) — sumado a detalles de imprenta reales:
+ *  marcas de registro en las esquinas, reglas punteadas, numerales
+ *  fantasma y cuadrícula de papel técnico. Cuatro composiciones muy
+ *  distintas entre sí (una sola foto, ficha técnica con datos, dúo de
+ *  fotos, póster tipográfico), así nunca sale dos veces lo mismo.
+ *
+ *  LA FOTO NUNCA SE CORTA: las fotos de las prendas son verticales
+ *  (800×1000 a 800×1200) y en un marco horizontal se descuadraturaban
+ *  con object-fit: cover, cortando el género. Acá el ayate real de la
+ *  imagen se mide al cargar (`Foto` mide el ratio natural) y el marco
+ *  adopta ESA proporción: la prenda entra siempre completa, y por eso
+ *  la foto va en una columna y no a sangre.
  *
  *  Cómo se exporta: el nodo se dibuja a 540×675 (la mitad de lo
  *  final) y `toPng` con pixelRatio 2 lo lleva a 1080×1350. En la
@@ -31,27 +38,27 @@ import { fmt } from "../utils/format.js";
 
 const DIS = 540; // ancho de diseño, en CSS px
 const ALT = 675;
-const CN = { crossOrigin: "anonymous" }; // para que Cloudinary haga CORS y la foto entre en el PNG
 
 const PLANTILLAS = [
-  { id: "tag", nombre: "TAG DE PRECIO" },
-  { id: "postal", nombre: "POSTAL" },
-  { id: "boletin", nombre: "BOLETÍN" },
-  { id: "archivo", nombre: "ARCHIVO 2 FOTOS" },
+  { id: "report", nombre: "REPORTE" },
+  { id: "ficha", nombre: "FICHA" },
+  { id: "duo", nombre: "DÚO" },
+  { id: "poster", nombre: "POSTER" },
 ];
 
 // Colores de marca, hardcodeados a propósito: el flyer tiene que verse
 // igual sin importar el tema claro/oscuro del sitio.
 const NEGRO = "#0d0c0a";
 const CARBON = "#14120f";
-const PAPEL = "#e9e4d8";
-const MUTED = "#8a8577";
-const CENIZA = "#2a2722";
-const MIEL = "#d8a24a";
+const PAPEL = "#eceae1";
+const TINTA = "#15120d";
 const HUMO = "#f2efe6";
+const MUTAO = "#8a8577";
+const GRIS = "#6f6759";
+const EMBER = "#bf4d26";
+const TEXTO_OSCURO = "url(/editorial/skul-street.svg) center/cover"; // textura de marca
 
 const MONO = "'SF Mono','Menlo','Consolas',monospace"; // números/etiquetas
-const SOMBRA = "0 14px 26px rgba(0,0,0,.36)"; // foto tirada sobre el papel
 
 /* Marionetas de texto compartidas, para que las plantillas hablen el
    mismo idioma visual. */
@@ -60,215 +67,244 @@ const T = {
   m: (f) => ({ fontFamily: MONO, letterSpacing: f || ".18em" }),
 };
 
-/** Cinta de papel para clavar las fotos (se pega sobre la esquina). */
-const Tape = ({ side = "tr", rot = "8deg", color = "rgba(213,188,138,.55)" }) => {
-  const pos = {
-    tl: { left: -12, top: -10 },
-    tr: { right: -12, top: -10 },
-    bl: { left: -14, bottom: -12 },
-    br: { right: -14, bottom: -12 },
-  }[side];
-  return <div style={{ position: "absolute", width: 94, height: 22, background: color, transform: `rotate(${rot})`, ...pos }} />;
-};
-
-/** La foto de la prenda, tratada para no quedar como un bloque duro:
- *  leve rotación (tira de fotos), sombra tirada y una cinta en una
- *  punta. Con `polaroid`, un marco claro afuera tipo foto clavada. */
-const Foto = ({ src, rot = "-2.5deg", h = 350, frame, redondeo = 2, polaroid = false, tape = null, pos = "center", esp = 0 }) => {
-  const caja = polaroid
-    ? { padding: 10, paddingBottom: 22, background: "#f3ecdd", boxShadow: SOMBRA, borderRadius: 2 }
-    : { boxShadow: SOMBRA };
+/** Cabecera común: wordmark SKUL a la izquierda, número de drop a la
+ *  derecha, y una línea fina abajo. Es el mismo patrón del header de
+ *  la tienda: montaje coherente, no collage. */
+const Cabecera = ({ numero, dark = false }) => {
+  const tinta = dark ? HUMO : TINTA;
   return (
-    <div style={{ transform: `rotate(${rot})`, position: "relative", boxSizing: "border-box", borderRadius: redondeo, ...caja, lineHeight: 0 }}>
-      <div style={{ width: "100%", height: h + esp, border: frame || "1px solid " + CENIZA, borderRadius: redondeo, overflow: "hidden", background: CARBON }}>
-        <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: pos }} {...CN} />
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <span style={{ ...T.o("28px"), fontSize: 26, color: tinta }}>SKUL</span>
+        <span style={{ ...T.m("10px"), fontSize: 12, color: dark ? MUTAO : GRIS }}>DROP Nº {numero}</span>
       </div>
-      {tape && <Tape side={tape} />}
+      <div style={{ height: 1, background: dark ? "rgba(242,239,230,.22)" : "rgba(21,18,13,.35)", marginTop: 9 }} />
     </div>
   );
 };
 
-/** Una plantilla por función. Todas reciben lo mismo (producto,
- *  textos y si va el precio) y devuelven el 540×675 completo. */
-const PlantillaTag = ({ p, titulo, numero, precio }) => (
-  <div style={{
-    width: DIS, height: ALT, background: `url(/editorial/skul-street.svg) center/cover, ${NEGRO}`,
-    color: HUMO, padding: 24, display: "flex", flexDirection: "column",
-  }}>
-    {/* agujero de etiqueta colgada + hilera de puntos */}
-    <div style={{ display: "flex", justifyContent: "center", padding: "6px 0 14px" }}>
-      <div style={{ width: 34, height: 34, borderRadius: "50%", border: "2px solid " + CENIZA, background: "transparent" }} />
+/** Marcas de registro (cuatro cantoneras): la firma de "material de
+ *  imprenta", algo que ninguna herramienta de flyers genéricos pone. */
+const Marca = ({ color = "rgba(242,239,230,.34)", tam = 16 }) => {
+  const lados = [
+    { top: 0, left: 0, borderTop: `1px solid ${color}`, borderLeft: `1px solid ${color}` },
+    { top: 0, right: 0, borderTop: `1px solid ${color}`, borderRight: `1px solid ${color}` },
+    { bottom: 0, left: 0, borderBottom: `1px solid ${color}`, borderLeft: `1px solid ${color}` },
+    { bottom: 0, right: 0, borderBottom: `1px solid ${color}`, borderRight: `1px solid ${color}` },
+  ];
+  return (
+    <div style={{ position: "absolute", inset: 13, pointerEvents: "none" }}>
+      {lados.map((s, i) => <div key={i} style={{ position: "absolute", width: tam, height: tam, ...s }} />)}
     </div>
-    <div style={{ height: 3, background: "repeating-linear-gradient(90deg," + CENIZA + " 0 2px,transparent 2px 8px)", marginBottom: 18 }} />
-    {/* cabecera tipo etiqueta de despacho */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-      <span style={T.o("24px")}>SKUL</span>
-      <span style={T.m("8px")}>KSSS—{numero}</span>
+  );
+};
+
+/** La foto de la prenda, a proporción REAL: mide el ratio natural de
+ *  la imagen al cargar (las fotos van de 0.67 a 0.8) y el marco
+ *  adopta esa proporción con object-fit: cover. Como marco y foto
+ *  comparten ratio, no recorta: la prenda entra siempre completa. */
+function Foto({ src, borde, pos = "center 30%", extra }) {
+  const [ratio, setRatio] = useState(null);
+  const cargar = (e) => setRatio((e.currentTarget.naturalWidth || 800) / (e.currentTarget.naturalHeight || 1000));
+  const r = ratio || 0.75; // 3:4 por defecto mientras carga
+  return (
+    <div style={{ width: "100%", aspectRatio: String(r), overflow: "hidden", background: CARBON, ...(borde || {}), ...extra }}>
+      <img src={src} alt="" onLoad={cargar} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: pos }} />
     </div>
-    {/* la prenda, clavada con cinta y medio torcida: foto de taller */}
-    <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-      <div style={{ width: "88%" }}>
-        <Foto src={p.photos[0]} rot="-3deg" h={316} frame="1px solid #45403a" polaroid tape="tr" />
+  );
+}
+
+/** El número de drop en tipografía fantasma, de fondo. */
+const Fantasma = ({ numero, color = "rgba(242,239,230,.08)" }) => (
+  <div style={{ position: "absolute", top: 30, right: 16, zIndex: 0, ...T.m("0px"), fontSize: 152, lineHeight: 1, color, pointerEvents: "none" }}>{numero}</div>
+);
+
+/** Bloque de precio del catálogo: lista en grande y abajo, más chico,
+ *  el 10% por efectivo/transferencia (igual que las tarjetas). */
+const Precio = ({ p, grande = 40, tinta = HUMO }) => {
+  const transfer = p.transferPrice || Math.round((Number(p.basePrice) || 0) * 0.9);
+  return (
+    <div>
+      <div style={{ ...T.m("3px"), fontSize: grande, color: tinta }}>{fmt(p.basePrice)}</div>
+      <div style={{ ...T.o("12px"), fontSize: 12.5, color: EMBER, marginTop: 6 }}>
+        EFECTIVO — 10% OFF · {fmt(transfer)}
       </div>
     </div>
-    <div style={{ flex: 1 }} />
-    {/* nombre + precio con descuento al lado */}
-    <p style={{ ...T.o("16px"), fontSize: 22, margin: "10px 0 0", lineHeight: 1.15 }}>{p.name}</p>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 }}>
-      {precio
-        ? <span style={{ ...T.m("6px"), fontSize: 46, color: HUMO }}>{fmt(p.transferPrice || p.basePrice)}</span>
-        : <span style={{ ...T.m("6px"), fontSize: 46, color: HUMO }}>{titulo}</span>}
-      <div style={{ textAlign: "right", ...T.m("12px"), fontSize: 13, color: MIEL, lineHeight: 1.5 }}>
-        <span>10% OFF</span><br /><span>EN EFECTIVO</span>
+  );
+};
+
+/* ─────────────────────────── 1. REPORTE ───────────────────────────────
+   Informe oscuro: foto en columna + datos. La textura de marca está
+   tan atenuada que el ojo la lee como atmósfera, no como fondo. */
+const ReportePlantilla = ({ p, titulo, numero, precio }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: HUMO, background: `linear-gradient(rgba(10,9,8,.82),rgba(10,9,8,.82)), ${TEXTO_OSCURO}` }}>
+    <Marca />
+    <Fantasma numero={numero} />
+    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+      <Cabecera numero={numero} dark />
+      <div style={{ display: "flex", gap: 26, alignItems: "flex-start", marginTop: 24, minHeight: 0 }}>
+        <div style={{ flex: "0 0 46%", minWidth: 0 }}>
+          <Foto src={p.photos[0]} borde={{ border: "1px solid rgba(242,239,230,.22)" }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <span style={{ ...T.m("12px"), fontSize: 10.5, color: MUTAO }}>INFORME DE DROP</span>
+          <h2 style={{ ...T.o("6px"), fontSize: 52, margin: "10px 0 0", lineHeight: 1, color: HUMO }}>{titulo}</h2>
+          <p style={{ ...T.o("14px"), fontSize: 21, margin: "16px 0 0", color: HUMO, whiteSpace: "pre-line" }}>{p.name}</p>
+          <p style={{ ...T.m("8px"), fontSize: 10.5, color: MUTAO, margin: "8px 0 0", whiteSpace: "pre-line" }}>
+            {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "UNICA"}
+          </p>
+          <div style={{ flex: 1 }} />
+          {precio && <Precio p={p} />}
+        </div>
       </div>
-    </div>
-    {/* barcode + pie */}
-    <div style={{ width: "100%", height: 46, background: "repeating-linear-gradient(90deg," + HUMO + " 0 2px,transparent 2px 5px," + HUMO + " 5px 6px,transparent 6px 11px)", marginTop: 14, opacity: .94 }} />
-    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, ...T.m("10px"), fontSize: 10, color: MUTED }}>
-      <span>SKUL STREETWEAR</span>
-      <span>LOS TOLDOS · BUENOS AIRES</span>
+      <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: MUTAO, borderTop: "1px solid rgba(242,239,230,.18)", marginTop: 22, paddingTop: 12 }}>
+        <span>SKUL STREETWEAR</span>
+        <span>LOS TOLDOS · BUENOS AIRES</span>
+      </div>
     </div>
   </div>
 );
 
-const PlantillaPostal = ({ p, titulo, numero, precio }) => (
-  <div style={{
-    width: DIS, height: ALT, background: PAPEL, color: "#12100c", padding: 26,
-    display: "flex", flexDirection: "column",
-  }}>
-    {/* titular grande arriba, número en la punta */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-      <h2 style={{ ...T.o("10px"), fontSize: 56, margin: 0, lineHeight: 1 }}>{titulo}</h2>
-      <span style={{ ...T.m("10px"), fontSize: 14, color: "#7a6f5b" }}>Nº {numero}</span>
+/* ─────────────────────────── 2. FICHA ─────────────────────────────────
+   Hoja técnica clara: cuadrícula de papel, datos en una grilla de
+   filas punteadas y la foto con marco corrido (desplazado, técnica de
+   imprenta). Es la plantilla más "de estudio de diseño". */
+const FichaPlantilla = ({ p, titulo, numero, precio }) => {
+  const transfer = p.transferPrice || Math.round((Number(p.basePrice) || 0) * 0.9);
+  const grilla = "repeating-linear-gradient(90deg, rgba(21,18,13,.09) 0 1px, transparent 1px 44px), repeating-linear-gradient(0deg, rgba(21,18,13,.07) 0 1px, transparent 1px 44px)";
+  const Fila = ({ k, v, embR = false }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px dotted rgba(21,18,13,.4)", padding: "9px 0", ...T.m("8px"), fontSize: 11.5 }}>
+      <span style={{ color: GRIS }}>{k}</span>
+      <span style={{ color: embR ? EMBER : TINTA, textTransform: "uppercase", textAlign: "right" }}>{v}</span>
     </div>
-    <div style={{ width: 74, height: 5, background: "#12100c", marginTop: 14 }} />
-    {/* la foto, una postal apoyada en el papel: torcida, clavada y con
-        el pie de foto escrito debajo (tipo polaroid) */}
-    <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
-      <div style={{ width: "92%" }}>
-        <Foto src={p.photos[0]} rot="-1.5deg" h={318} frame="2px solid #12100c" polaroid tape="tl" pos="center top" />
-      </div>
-    </div>
-    <div style={{ display: "flex", justifyContent: "center", marginTop: -14, marginLeft: 64, ...T.m("10px"), fontSize: 11, color: "#7a6f5b" }}>
-      {`${p.name.toUpperCase()} — DROP ${titulo}`}
-    </div>
-    <div style={{ flex: 1 }} />
-    {/* datos del drop */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 18 }}>
-      <div>
-        <p style={{ ...T.o("14px"), fontSize: 20, margin: 0 }}>{p.name}</p>
-        {precio && <p style={{ ...T.m("8px"), fontSize: 30, margin: "8px 0 0" }}>{fmt(p.transferPrice || p.basePrice)}</p>}
-      </div>
-      <p style={{ ...T.o("16px"), fontSize: 13, color: "#7a6f5b", margin: 0 }}>EFECTIVO 10% OFF</p>
-    </div>
-    {/* barra negra de cierre */}
-    <div style={{ margin: "16px -26px -26px", background: "#12100c", color: HUMO, padding: "18px 26px", display: "flex", justifyContent: "space-between", ...T.o("14px"), fontSize: 12 }}>
-      <span>SKUL STREETWEAR</span>
-      <span style={T.m("12px")}>SKULLT.WEB.APP</span>
-    </div>
-  </div>
-);
-
-const PlantillaBoletin = ({ p, titulo, numero, precio }) => (
-  <div style={{
-    width: DIS, height: ALT, background: NEGRO, color: HUMO, padding: 30,
-    display: "flex", flexDirection: "column",
-  }}>
-    {/* arriba: el número a la izquierda, la marca a la derecha */}
-    <div style={{ display: "flex", justifyContent: "space-between", ...T.m("12px"), fontSize: 12, color: MUTED }}>
-      <span>Nº {numero}</span>
-      <span style={T.o("20px")}>SKUL</span>
-    </div>
-    {/* titular + raya de acento, con el título montado sobre la foto */}
-    <div style={{ position: "relative", marginTop: 26 }}>
-      <h2 style={{ ...T.o("8px"), fontSize: 50, margin: 0, lineHeight: 1 }}>{titulo}</h2>
-      <div style={{ width: 84, height: 4, background: MIEL, marginTop: 16 }} />
-      {/* foto corrida a la derecha, torcida y con cinta (fanzine) */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
-        <div style={{ width: "84%", transform: "scale(.96)" }}>
-          <Foto src={p.photos[0]} rot="-3deg" h={312} frame={"2px solid " + HUMO} tape="bl" pos="center top" />
+  );
+  return (
+    <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: TINTA, background: `${PAPEL} , ${grilla}` }}>
+      <Marca color="rgba(21,18,13,.30)" />
+      <Fantasma numero={numero} color="rgba(21,18,13,.06)" />
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+        <Cabecera numero={numero} />
+        <div style={{ display: "flex", gap: 26, alignItems: "flex-start", marginTop: 22, minHeight: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+            <span style={{ ...T.m("12px"), fontSize: 10.5, color: GRIS }}>HOJA DE PIEZA</span>
+            <h2 style={{ ...T.o("12px"), fontSize: 30, margin: "8px 0 14px", lineHeight: 1.05 }}>{p.name}</h2>
+            <Fila k="CATEGORÍA" v={(p.cat || "pieza").toUpperCase()} />
+            <Fila k="TALLES" v={(p.sizes || []).join(" / ") || "ÚNICA"} />
+            <Fila k="SERIE" v={titulo} />
+            <Fila k="DROP" v={numero} />
+            {precio && <Fila k="PRECIO LISTA" v={fmt(p.basePrice)} />}
+            {precio && <Fila k="EFECTIVO 10% OFF" v={fmt(transfer)} embR />}
+            <p style={{ ...T.m("9px"), fontSize: 10, color: GRIS, margin: "14px 0 0", whiteSpace: "pre-line" }}>
+              {p.composition || "MATERIAL 100% ALGODÓN PESADO"} ·{p.sizeChart ? " TALLAJE EN LA WEB" : " TALLAJE REAL"}
+            </p>
+          </div>
+          <div style={{ flex: "0 0 56%", minWidth: 0 }}>
+            <div style={{ marginLeft: 8, width: "100%" }}>
+              <Foto src={p.photos[0]} borde={{ border: "1px solid " + TINTA }} extra={{ boxShadow: `0 0 0 4px ${PAPEL}, 0 0 0 5px ${TINTA}`, margin: 5 }} />
+            </div>
+          </div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: GRIS, borderTop: "1px solid rgba(21,18,13,.3)", paddingTop: 12 }}>
+          <span>SKUL STREETWEAR</span>
+          <span>NUESTRO REPORTE ES LA PRENDA</span>
         </div>
       </div>
     </div>
-    <div style={{ flex: 1 }} />
-    <p style={{ ...T.o("14px"), fontSize: 21, margin: 0 }}>{p.name}</p>
-    {precio && <p style={{ ...T.m("8px"), fontSize: 30, margin: "10px 0 0", color: MIEL }}>{fmt(p.transferPrice || p.basePrice)}</p>}
-    {/* línea de cierre */}
-    <div style={{ borderTop: "1px solid " + CENIZA, marginTop: 22, paddingTop: 12, display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: MUTED }}>
-      <span>LOS TOLDOS, ARGENTINA</span>
-      <span>SKULLT.WEB.APP</span>
+  );
+};
+
+/* ─────────────────────────── 3. DÚO ──────────────────────────────────
+   Dos fotos en grilla editorial claras, sin collage ni cintas: una
+   general y un "detalle" corriendo el encuadre. El titular sale por
+   debajo, superpuesto a la grilla (juego tipográfico real). */
+const DuoPlantilla = ({ p, titulo, numero, precio }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: TINTA, background: PAPEL }}>
+    <Marca color="rgba(21,18,13,.30)" />
+    <Fantasma numero={numero} color="rgba(21,18,13,.06)" />
+    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+      <Cabecera numero={numero} />
+      <div style={{ display: "flex", gap: 18, alignItems: "flex-start", marginTop: 22 }}>
+        <div style={{ flex: "0 0 55%", minWidth: 0 }}>
+          <Foto src={p.photos[0]} borde={{ border: "1px solid " + TINTA }} />
+          <p style={{ ...T.m("10px"), fontSize: 10, color: GRIS, margin: "10px 0 0" }}>01 — VISTA GENERAL</p>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Foto src={p.photos[1] || p.photos[0]} borde={{ border: "1px solid " + TINTA }} pos="center 78%" />
+          <p style={{ ...T.m("10px"), fontSize: 10, color: GRIS, margin: "10px 0 0" }}>02 — DETALLE</p>
+          <div style={{ width: 46, height: 4, background: EMBER, marginTop: 18 }} />
+        </div>
+      </div>
+      <div style={{ flex: 1 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ ...T.o("6px"), fontSize: 46, margin: 0, lineHeight: 1, whiteSpace: "nowrap" }}>{titulo}</h2>
+          <p style={{ ...T.o("14px"), fontSize: 20, margin: "12px 0 0", whiteSpace: "nowrap" }}>{p.name}</p>
+        </div>
+        {precio && <Precio p={p} grande={32} tinta={TINTA} />}
+      </div>
     </div>
   </div>
 );
 
-/* Collage con dos fotos (usa la 2da si la prenda tiene), desfasadas
-   y montadas una sobre la otra: el look de moodboard, nada rígido. */
-const PlantillaArchivo = ({ p, titulo, numero, precio }) => (
-  <div style={{
-    width: DIS, height: ALT, background: PAPEL, color: "#12100c", padding: 26,
-    display: "flex", flexDirection: "column",
-  }}>
-    {/* cabecera: marca + número */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-      <span style={{ ...T.o("22px"), fontSize: 30 }}>SKUL</span>
-      <span style={{ ...T.m("10px"), fontSize: 13, color: "#7a6f5b" }}>Nº {numero}</span>
-    </div>
-    {/* titular */}
-    <h2 style={{ ...T.o("8px"), fontSize: 46, margin: "10px 0 0", lineHeight: 1 }}>{titulo}</h2>
-    <div style={{ width: 64, height: 5, background: "#12100c", marginTop: 12 }} />
-    {/* las dos fotos, montadas en diagonal */}
-    <div style={{ position: "relative", marginTop: 16, height: 400 }}>
-      <div style={{ position: "absolute", left: 0, top: 0, width: "56%", zIndex: 2 }}>
-        <Foto src={p.photos[0]} rot="-2deg" h={300} frame="1px solid #12100c" tape="tl" />
+/* ─────────────────────────── 4. POSTER ────────────────────────────────
+   Póster tipográfico oscuro: la tipografía manda (versión gigante del
+   título), la foto va en columna con una pestaña ember. Cerca del
+   lenguaje de los afiches de marca. */
+const PosterPlantilla = ({ p, titulo, numero, precio }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: HUMO, background: `linear-gradient(rgba(8,7,6,.8),rgba(8,7,6,.8)), ${TEXTO_OSCURO}` }}>
+    <Marca />
+    <Fantasma numero={numero} />
+    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+      <Cabecera numero={numero} dark />
+      <div style={{ display: "flex", gap: 24, marginTop: 22, alignItems: "stretch", minHeight: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <h2 style={{ ...T.o("6px"), fontSize: 64, margin: 0, lineHeight: .96, color: HUMO, whiteSpace: "pre-line" }}>{titulo}</h2>
+          <div style={{ width: 42, height: 5, background: EMBER, marginTop: 22 }} />
+          <p style={{ ...T.o("14px"), fontSize: 21, margin: "18px 0 0", color: HUMO }}>{p.name}</p>
+          <p style={{ ...T.m("8px"), fontSize: 10.5, color: MUTAO, margin: "8px 0 0" }}>
+            {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "UNICA"}
+          </p>
+          <div style={{ flex: 1 }} />
+          {precio && <Precio p={p} />}
+          <div style={{ ...T.m("10px"), fontSize: 10, color: MUTAO, marginTop: 16 }}>BUENOS AIRES / {numero}</div>
+        </div>
+        <div style={{ flex: "0 0 44%", minWidth: 0, position: "relative" }}>
+          <Foto src={p.photos[0]} borde={{ border: "1px solid rgba(242,239,230,.25)" }} pos="center 25%" />
+          <div style={{ position: "absolute", left: -10, top: 0, bottom: 12, width: 6, background: EMBER }} />
+        </div>
       </div>
-      <div style={{ position: "absolute", right: 0, top: 84, width: "42%", zIndex: 3 }}>
-        <Foto src={p.photos[1] || p.photos[0]} rot="3deg" h={220} frame="1px solid #12100c" tape="br" pos="center top" />
+      <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: MUTAO, borderTop: "1px solid rgba(242,239,230,.18)", marginTop: 22, paddingTop: 12 }}>
+        <span>SKUL STREETWEAR</span>
+        <span>SKULLT.WEB.APP</span>
       </div>
-      {/* sello de fanzine al costado */}
-      <div style={{ position: "absolute", left: 8, bottom: 4, zIndex: 4, ...T.m("10px"), fontSize: 10, color: MIEL, transform: "rotate(-6deg)" }}>
-        [ 10% OFF EFECTIVO ]
-      </div>
-    </div>
-    <div style={{ flex: 1 }} />
-    {/* datos del drop */}
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-      <div>
-        <p style={{ ...T.o("12px"), fontSize: 19, margin: 0 }}>{p.name}</p>
-        {precio && <p style={{ ...T.m("8px"), fontSize: 28, margin: "6px 0 0" }}>{fmt(p.transferPrice || p.basePrice)}</p>}
-      </div>
-      <p style={{ ...T.o("16px"), fontSize: 12, color: "#7a6f5b", margin: 0 }}>LOOKBOOK DROP {numero}</p>
-    </div>
-    {/* línea de cierre */}
-    <div style={{ borderTop: "1px solid " + CENIZA, marginTop: 16, paddingTop: 10, display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: "#7a6f5b" }}>
-      <span>SKUL STREETWEAR</span>
-      <span>LOS TOLDOS · BUENOS AIRES</span>
     </div>
   </div>
 );
 
-const PLANTILLA_COMP = { tag: PlantillaTag, postal: PlantillaPostal, boletin: PlantillaBoletin, archivo: PlantillaArchivo };
+const PLANTILLA_COMP = { report: ReportePlantilla, ficha: FichaPlantilla, duo: DuoPlantilla, poster: PosterPlantilla };
 
 export default function FlyersTab() {
   const { products } = useProducts();
   const [productId, setProductId] = useState("");
-  const [plantilla, setPlantilla] = useState("tag");
+  const [plantilla, setPlantilla] = useState("report");
   const [titulo, setTitulo] = useState("NUEVO DROP");
   const [numero, setNumero] = useState("001");
   const [precio, setPrecio] = useState(true);
   const [exportando, setExportando] = useState(false);
   const [error, setError] = useState("");
-  const nodeRef = useRef(null);
+  const [nodo, setNodo] = useState(null);
 
   const conFoto = (products || []).filter((p) => (p.photos || []).length > 0);
   const product = conFoto.find((p) => p.id === productId) || conFoto[0];
 
   const descargar = async () => {
-    if (!nodeRef.current || !product) return;
+    if (!nodo || !product) return;
     setExportando(true);
     setError("");
     try {
       // pixelRatio 2 sobre un lienzo de 540×675 = PNG de 1080×1350.
-      const dataUrl = await toPng(nodeRef.current, { pixelRatio: 2 });
+      const dataUrl = await toPng(nodo, { pixelRatio: 2 });
       const a = document.createElement("a");
       a.href = dataUrl;
       a.download = `skul-${plantilla}-${String(numero).trim().replace(/\s+/g, "-") || "drop"}.png`;
@@ -287,10 +323,11 @@ export default function FlyersTab() {
       <p className="tracked" style={{ fontSize: 12, fontWeight: 700, marginBottom: 18 }}>
         Flyers para Instagram Drop
       </p>
-      <p style={{ fontSize: 12.5, color: "#5c5a52", margin: "-8px 0 18px", maxWidth: 640, lineHeight: 1.5 }}>
-        Se exporta en 1080×1350 (historia / portada vertical). Cuatro composiciones distintas, con la foto tirada,
-        clavada con cinta y con galería; "Archivo 2 fotos" usa la segunda foto de la prenda si está cargada. El precio
-        es opcional y usa el de transferencia.
+      <p style={{ fontSize: 12.5, color: "#5c5a52", margin: "-8px 0 18px", maxWidth: 700, lineHeight: 1.5 }}>
+        Se exporta en 1080×1350 (historia / portada vertical). La foto se muestra a su proporción real: la prenda
+        nunca se corta. Cuatro composiciones sin collage — reporte, ficha técnica con datos, dúo de fotos y póster
+        tipográfico. "Dúo" usa la segunda foto de la prenda si está cargada; el precio de lista es opcional y el de
+        transferencia sale debajo.
       </p>
 
       <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
@@ -307,14 +344,14 @@ export default function FlyersTab() {
 
           <div>
             <p className="tracked" style={{ fontWeight: 700, fontSize: 11.5, margin: "0 0 8px" }}>Plantilla</p>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {PLANTILLAS.map((pl) => (
                 <button
                   key={pl.id}
                   onClick={() => setPlantilla(pl.id)}
                   className="tracked"
                   style={{
-                    flex: 1, padding: "10px 8px", fontSize: 10.5, fontWeight: 700,
+                    flex: 1, minWidth: 84, padding: "10px 8px", fontSize: 10.5, fontWeight: 700,
                     border: "1px solid var(--black)", background: plantilla === pl.id ? "var(--black)" : "transparent",
                     color: plantilla === pl.id ? "var(--white)" : "var(--black)", cursor: "pointer",
                   }}
@@ -327,7 +364,7 @@ export default function FlyersTab() {
 
           <label className="tracked" style={{ fontWeight: 700, fontSize: 11.5, display: "block" }}>
             Título del flyer
-            <input value={titulo} maxLength={28} onChange={(e) => setTitulo(e.target.value)} style={{ marginTop: 6 }} />
+            <input value={titulo} maxLength={16} onChange={(e) => setTitulo(e.target.value)} style={{ marginTop: 6 }} />
           </label>
           <label className="tracked" style={{ fontWeight: 700, fontSize: 11.5, display: "block" }}>
             Nº de drop
@@ -355,7 +392,7 @@ export default function FlyersTab() {
           {product ? (
             <div style={{ width: 243, height: 304, overflow: "hidden", border: "1px solid var(--black)", lineHeight: 0 }}>
               <div style={{ transform: "scale(.45)", transformOrigin: "top left", width: DIS, height: ALT }}>
-                <div ref={nodeRef}>{React.createElement(Plantilla, { p: product, titulo, numero, precio })}</div>
+                <div ref={setNodo}>{React.createElement(Plantilla, { p: product, titulo, numero, precio })}</div>
               </div>
             </div>
           ) : (
