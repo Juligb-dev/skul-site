@@ -38,6 +38,10 @@ import userEvent from "@testing-library/user-event";
 vi.mock("../utils/correo.js", () => ({
   getShippingRates: vi.fn(),
   getAgencies: vi.fn(),
+  // Sin geocoding los tests prueban el camino "lista sin ordenar por
+  // cercanía" (el de antes): null = el CP no se pudo ubicar.
+  geocodificarCP: vi.fn(async () => null),
+  distanciaKm: vi.fn(() => 0),
 }));
 import { getShippingRates, getAgencies } from "../utils/correo.js";
 import Checkout from "./Checkout.jsx";
@@ -247,20 +251,23 @@ describe("Envío por Correo Argentino", () => {
     fireEvent.click(screen.getByText("Calcular envío"));
     await screen.findByText("Retiro en sucursal de Correo");
     fireEvent.click(screen.getByText("Retiro en sucursal de Correo"));
-    await screen.findByText("Correo Central — Los Toldos");
+    // Cada fila muestra el nombre y, abajo, la dirección completa.
+    await screen.findByText("Correo Central");
+    expect(screen.getByText("Av. 1, Los Toldos")).toBeInTheDocument();
     expect(getAgencies).toHaveBeenCalledWith("B");
     // Filtrar la lista
-    await userEvent.type(screen.getByPlaceholderText("Buscar sucursal por localidad…"), "Junín");
-    expect(screen.queryByText("Correo Central — Los Toldos")).not.toBeInTheDocument();
-    expect(screen.getByText("Expreso Norte — Junín")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Expreso Norte — Junín"));
+    await userEvent.type(screen.getByPlaceholderText("Buscar sucursal por calle o localidad…"), "Junín");
+    expect(screen.queryByText("Correo Central")).not.toBeInTheDocument();
+    expect(screen.getByText("Expreso Norte")).toBeInTheDocument();
+    expect(screen.getByText("Calle 2, Junín")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Expreso Norte"));
     expect(setters.setCorreoQuote).toHaveBeenCalledWith({
       type: "sucursal",
       price: 2600,
       postalCode: "1704",
       provinceCode: "B",
       agencyCode: "AG2",
-      agencyName: "Expreso Norte (Junín)",
+      agencyName: "Expreso Norte (Calle 2, Junín)",
     });
   });
 

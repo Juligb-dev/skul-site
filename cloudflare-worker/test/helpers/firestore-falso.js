@@ -80,6 +80,7 @@ export const docDePrueba = (datos, updateTime = "2026-01-01T00:00:00.000Z") => (
  *  - POST <CORREO_BASE_URL>/token          → { token }
  *  - POST <CORREO_BASE_URL>/rates          → las tarifas que se configuren
  *  - GET  <CORREO_BASE_URL>/agencies       → las sucursales configuradas
+ *  - GET  nominatim.../search              → la ubicación del CP (geoCp)
  *
  * Lo que no reconoce lo tira con un error claro: si el Worker empieza a
  * pegarle a un servicio que el test no conoce, el test se cae con un
@@ -93,6 +94,7 @@ export const instalarFetchFalso = (fs, opciones = {}) => {
     correoRates = { rates: [{ deliveredType: "D", price: 2500 }, { deliveredType: "S", price: 1500 }] },
     correoAgencies = [],
     correoFalla = false,
+    geoCp = [{ lat: "-34.6476", lon: "-58.558", address: { state: "Buenos Aires", city: "Ramos Mejía" } }],
   } = opciones;
 
   const llamadas = [];
@@ -208,6 +210,14 @@ export const instalarFetchFalso = (fs, opciones = {}) => {
     }
     if (u.includes("/agencies")) {
       return new Response(JSON.stringify(correoAgencies), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // --- Nominatim: geocodificación de CP (acción geocp del Worker) ---
+    if (u.includes("nominatim.openstreetmap.org")) {
+      return new Response(JSON.stringify(geoCp), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

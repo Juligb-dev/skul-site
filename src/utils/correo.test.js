@@ -26,9 +26,15 @@ vi.mock("../data/config.js", () => ({
   get ORDER_NOTIFY_WORKER_URL() {
     return cfg.url;
   },
+  // Un recorte del real: alcanza para probar el mapeo de Nominatim → letra.
+  CORREO_PROVINCES: [
+    { code: "B", name: "Buenos Aires" },
+    { code: "C", name: "Ciudad Autónoma de Buenos Aires" },
+    { code: "X", name: "Córdoba" },
+  ],
 }));
 
-import { getShippingRates, getAgencies } from "./correo.js";
+import { getShippingRates, getAgencies, geocodificarCP, distanciaKm } from "./correo.js";
 
 const fetchOk = (body) =>
   vi.fn(async () => ({ ok: true, json: async () => body }));
@@ -107,5 +113,48 @@ describe("getAgencies", () => {
       vi.fn(async () => ({ ok: false, json: async () => ({ error: "Sin sucursales para esa provincia." }) }))
     );
     await expect(getAgencies("Z")).rejects.toThrow("Sin sucursales para esa provincia.");
+  });
+});
+
+describe("geocodificarCP", () => {
+  it("pide la ubicación con action 'geocp' y devuelve coords + provincia mapeada", async () => {
+    const fetchMock = fetchOk({ lat: -34.647, lng: -58.558, state: "Buenos Aires", localidad: "Ramos Mejía" });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const r = await geocodificarCP("1704");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body).toMatchObject({ action: "geocp", postalCode: "1704" });
+    expect(r).toEqual({ lat: -34.647, lng: -58.558, localidad: "Ramos Mejía", provinceCode: "B" });
+  });
+
+  it("CABA (aunque venga como 'Capital Federal') cae en la provincia C", async () => {
+    vi.stubGlobal("fetch", fetchOk({ lat: -34.6, lng: -58.4, state: "Capital Federal", localidad: "San Telmo" }));
+    expect((await geocodificarCP("1000")).provinceCode).toBe("C");
+  });
+
+  it("CP que Nominatim no ubica → null (la lista de sucursales sigue sin ordenar)", async () => {
+    vi.stubGlobal("fetch", fetchOk({ lat: null }));
+    expect(await geocodificarCP("0000")).toBeNull();
+  });
+
+  it("sin Worker configurado, el error dice QUÉ falta", async () => {
+    cfg.url = "";
+    await expect(geocodificarCP("1704")).rejects.toThrow(/DATA_CONFIG|config/i);
+  });
+});
+
+describe("distanciaKm", () => {
+  it("cero entre el mismo punto y ~1,1 km de un paso chico de latitud", () => {
+    expect(distanciaKm(-34.6, -58.5, -34.6, -58.5)).toBe(0);
+    // 0,01° de latitud ≈ 1,11 km sobre el ecuador; en -34,6° es parecido.
+    expect(distanciaKm(-34.6, -58.5, -34.61, -58.5)).toBeCloseTo(1.11, 0);
+  });
+
+  it("Ramos Mejía → Los Toldos da un orden de cientos de km (no mezcla provincias)", () => {
+    // Ramos Mejía (1704) y Los Toldos (6015), ambos en la lista real.
+    const km = distanciaKm(-34.6476, -58.558, -35.0067, -61.0475);
+    expect(km).toBeGreaterThan(200);
+    expect(km).toBeLessThan(300);
   });
 });

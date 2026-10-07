@@ -284,6 +284,7 @@ const LIMITES = {
   subscribe: { max: 10, ventanaMs: 60_000 },
   rates: { max: 30, ventanaMs: 60_000 },
   agencies: { max: 30, ventanaMs: 60_000 },
+  geocp: { max: 30, ventanaMs: 60_000 },
   signUpload: { max: 60, ventanaMs: 60_000 },
   // Un pedido real es 1 por persona. 5 por minuto y por IP alcanza
   // sobrado para una familia o una tienda con varios pedidos juntos,
@@ -376,6 +377,7 @@ export default {
       if (action === "signUpload") return await handleSignUpload(body, env, cors, request);
       if (action === "rates") return await handleRates(body, env, cors);
       if (action === "agencies") return await handleAgencies(body, env, cors);
+      if (action === "geocp") return await handleGeoCP(body, env, cors);
       return new Response("Acción desconocida", { status: 400, headers: cors });
     } catch (err) {
       // El detalle va al log del Worker (wrangler tail / dashboard) para
@@ -1726,13 +1728,90 @@ async function handleAgencies(body, env, cors) {
   }
 
   // Achicamos la respuesta a lo que el sitio va a mostrar.
-  const agencies = (Array.isArray(data) ? data : []).map((a) => ({
-    code: a.code,
-    name: a.name,
-    city: a.location?.address?.city,
-    address: `${a.location?.address?.streetName || ""} ${a.location?.address?.streetNumber || ""}`.trim(),
-  }));
+  // - locality / postalCode / lat / lng: los necesita el checkout para
+  //   ordenar la lista por cercanía al CP del cliente y para mostrar la
+  //   dirección completa (la API de MiCorreo solo filtra por provincia,
+  //   el filtro fino lo hace el sitio).
+  // - status: el listado trae también sucursales cerradas; solo ACTIVE.
+  const agencies = (Array.isArray(data) ? data : [])
+    .filter((a) => !a.status || a.status === "ACTIVE")
+    .map((a) => ({
+      code: a.code,
+      name: a.name,
+      city: a.location?.address?.city,
+      locality: a.location?.address?.locality,
+      address: `${a.location?.address?.streetName || ""} ${a.location?.address?.streetNumber || ""}`.trim(),
+      postalCode: a.location?.address?.postalCode || null,
+      lat: Number(a.location?.latitude) || null,
+      lng: Number(a.location?.longitude) || null,
+    }));
   return new Response(JSON.stringify({ agencies }), {
+    status: 200, headers: { ...cors, "Content-Type": "application/json" },
+  });
+}
+
+/* ============================================================
+   ACCIÓN: geocp — ubicar un código postal argentino
+   ------------------------------------------------------------
+   El checkout lo usa para ordenar las sucursales por cercanía: pide
+   las coordenadas del CP que escribió el cliente y de ahí sale el
+   "a 3,2 km" de cada sucursal.
+
+   Va por el Worker porque Nominatim (OpenStreetMap, gratis y sin
+   API key) no devuelve cabeceras CORS: desde el navegador el
+   navegador lo bloquearía. Además así queda cachéado por isolate y
+   el sitio no le pega a un tercero por cada clic.
+
+   Respuesta: { lat, lng, state, localidad } o { lat: null } si el
+   CP no se pudo ubicar (no es un error: el sitio sigue sin ordenar).
+   ============================================================ */
+const cacheGeoCP = new Map();
+
+async function handleGeoCP(body, cors) {
+  const cp = String(body.postalCode || "").trim();
+  // CP argentino: 4 dígitos ("1704") o con letras ("C1000AB"). Cualquier
+  // otra cosa se corta acá para no consultar de más a Nominatim.
+  if (!/^[A-Za-z0-9]{4,8}$/.test(cp)) {
+    return new Response(JSON.stringify({ error: "Código postal inválido." }), {
+      status: 400, headers: { ...cors, "Content-Type": "application/json" },
+    });
+  }
+
+  const clave = cp.toUpperCase();
+  if (cacheGeoCP.has(clave)) {
+    return new Response(JSON.stringify(cacheGeoCP.get(clave)), {
+      status: 200, headers: { ...cors, "Content-Type": "application/json" },
+    });
+  }
+
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(clave)}&countrycodes=ar&format=jsonv2&limit=1`,
+    {
+      headers: {
+        // Nominatim pide identificarse en el User-Agent (su política de
+        // uso lo exige); como contacto va el dominio del sitio.
+        "User-Agent": "skul-site-worker/1.0 (https://skullt.web.app)",
+        "Accept-Language": "es",
+      },
+    }
+  );
+  const arr = await res.json().catch(() => []);
+  const r = Array.isArray(arr) && arr.length ? arr[0] : null;
+  const out = r
+    ? {
+        lat: Number(r.lat),
+        lng: Number(r.lon),
+        state: r.address?.state || r.address?.province || "",
+        localidad: r.address?.city || r.address?.town || r.address?.suburb || r.address?.village || "",
+      }
+    : { lat: null };
+
+  // Caché chica en memoria: mismo CP repetido (el cliente tildando,
+  // varias sesiones) no vuelve a pegarle a Nominatim.
+  if (cacheGeoCP.size > 500) cacheGeoCP.clear();
+  cacheGeoCP.set(clave, out);
+
+  return new Response(JSON.stringify(out), {
     status: 200, headers: { ...cors, "Content-Type": "application/json" },
   });
 }

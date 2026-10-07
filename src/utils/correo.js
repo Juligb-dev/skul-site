@@ -25,14 +25,15 @@
  *      del Cloudflare Worker. Por eso el navegador habla con el
  *      Worker y no con MiCorreo directo.
  *
- *  Qué exporta: `getShippingRates` y `getAgencies`.
+ *  Qué exporta: `getShippingRates`, `getAgencies`, `geocodificarCP`
+ *  y `distanciaKm`.
  *  Quién las usa: src/components/CorreoShipping.jsx (el bloque de
  *  envío del checkout).
  *  Qué tiene que estar configurado afuera: ORDER_NOTIFY_WORKER_URL
  *  en src/data/config.js. Sin esto ninguna de las dos funciona.
  * ============================================================
  */
-import { ORDER_NOTIFY_WORKER_URL } from "../data/config.js";
+import { ORDER_NOTIFY_WORKER_URL, CORREO_PROVINCES } from "../data/config.js";
 
 /** Pide al Worker que cotice un envío por Correo Argentino a un
  *  código postal. Devuelve { domicilio, sucursal } en pesos, o
@@ -87,4 +88,48 @@ export async function getAgencies(provinceCode) {
   // Si la respuesta vino sin la lista (o vino vacía), prefiero devolver
   // un array vacío: el componente puede recorrerlo sin romperse.
   return data.agencies || [];
+}
+
+/** Ubica un código postal argentino vía el Worker (acción "geocp").
+ *  Devuelve { lat, lng, localidad, provinceCode } para que el checkout
+ *  pueda ordenar las sucursales por cercanía, o null si el CP no se
+ *  pudo ubicar (no es un error: la lista se muestra igual, sin ordenar).
+ *
+ *  El geocoding pasa por el Worker porque Nominatim no manda cabeceras
+ *  CORS y el navegador lo bloquearía; además así no le pegamos a un
+ *  tercero por cada clic. `provinceCode` sale de mapear la provincia
+ *  que devolvió Nominatim contra CORREO_PROVINCES (con alias para
+ *  CABA, que a veces aparece como "Capital Federal"). */
+export async function geocodificarCP(postalCode) {
+  if (!ORDER_NOTIFY_WORKER_URL) {
+    throw new Error("Falta configurar ORDER_NOTIFY_WORKER_URL en config.js");
+  }
+  const res = await fetch(ORDER_NOTIFY_WORKER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "geocp", postalCode }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "No se pudo ubicar el código postal.");
+  if (data.lat == null) return null; // CP no encontrado: sin coordenadas
+
+  const estado = String(data.state || "").trim().toLowerCase();
+  let provinceCode = CORREO_PROVINCES.find((p) => p.name.toLowerCase() === estado)?.code || null;
+  if (!provinceCode && ["capital federal", "caba", "ciudad de buenos aires"].includes(estado)) {
+    provinceCode = "C";
+  }
+  return { lat: data.lat, lng: data.lng, localidad: data.localidad || "", provinceCode };
+}
+
+/** Distancia en kilómetros entre dos puntos (fórmula haversine).
+ *  Sirve para ordenar las sucursales de la más cercana a la más lejana
+ *  respecto del CP que escribió el cliente. */
+export function distanciaKm(lat1, lng1, lat2, lng2) {
+  const rad = (grados) => (grados * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
 }

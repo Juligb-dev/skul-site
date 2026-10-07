@@ -93,6 +93,62 @@ describe("Frontera de los endpoints", () => {
 });
 
 /* -------------------------------------------------------------- */
+describe("agencias y geocp — lo que el checkout necesita para armar la lista de sucursales", () => {
+  it("las agencias vienen con dirección completa, CP y coordenadas (y las cerradas se filtran)", async () => {
+    montarFirestore({}, {
+      correoAgencies: [
+        {
+          code: "AG1", name: "Correo Los Toldos", status: "ACTIVE",
+          location: {
+            latitude: "-35.0067", longitude: "-61.0475",
+            address: {
+              streetName: "Av. San Martín", streetNumber: "1234",
+              locality: "Los Toldos", city: "General Viamonte",
+              province: "Buenos Aires", provinceCode: "B", postalCode: "6015",
+            },
+          },
+        },
+        {
+          code: "AG2", name: "Sucursal cerrada", status: "CLOSED",
+          location: { latitude: "", longitude: "", address: { streetName: "X", streetNumber: "1" } },
+        },
+      ],
+    });
+    const { status, json } = await pedir(worker, { action: "agencies", provinceCode: "B" });
+    expect(status).toBe(200);
+    expect(json.agencies).toHaveLength(1);
+    expect(json.agencies[0]).toMatchObject({
+      code: "AG1",
+      locality: "Los Toldos",
+      address: "Av. San Martín 1234",
+      postalCode: "6015",
+      lat: -35.0067,
+      lng: -61.0475,
+    });
+  });
+
+  it("geocp devuelve la ubicación del CP (coords para ordenar por cercanía)", async () => {
+    const { status, json } = await pedir(worker, { action: "geocp", postalCode: "1704" });
+    expect(status).toBe(200);
+    expect(json).toEqual({ lat: -34.6476, lng: -58.558, state: "Buenos Aires", localidad: "Ramos Mejía" });
+  });
+
+  it("geocp con un CP malformado ni consulta a Nominatim (400)", async () => {
+    const { llamadas } = montarFirestore({}, { adminUid: null });
+    const { status } = await pedir(worker, { action: "geocp", postalCode: "12" });
+    expect(status).toBe(400);
+    expect(llamadas.some((l) => l.url.includes("nominatim"))).toBe(false);
+  });
+
+  it("geocp sin resultado → { lat: null }: no es error, la lista sigue sin ordenar", async () => {
+    montarFirestore({}, { geoCp: [], adminUid: null });
+    const { status, json } = await pedir(worker, { action: "geocp", postalCode: "9999" });
+    expect(status).toBe(200);
+    expect(json).toEqual({ lat: null });
+  });
+});
+
+/* -------------------------------------------------------------- */
 describe("CORS — la lista blanca de orígenes", () => {
   it.each(["https://skullt.web.app", "https://skullt.firebaseapp.com", "http://localhost:5173"])(
     "devuelve el Allow-Origin para %s",
