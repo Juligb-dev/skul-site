@@ -93,12 +93,13 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
   const tracksStock = Object.keys(stock).length > 0;
 
   // PREVISUALIZACIÓN de precios, nada más. El precio grande de la ficha
-  // es el precio de lista menos el 10%, y abajo el precio de lista sin
-  // descuento. (Ojo: el nombre de la variable dice "transferencia" pero
-  // el cartel de al lado dice "pagando en efectivo" — son dos nombres
-  // para la misma idea de pago.)
+  // Precio de lista grande y, abajo, el 10% de descuento pagando en
+  // efectivo o transferencia (el nombre de la variable dice
+  // "transferencia" pero el cartel dice "efectivo": son dos nombres
+  // para lo mismo en esta tienda).
   // Si la prenda está en outlet, el precio de referencia es el rebajado.
-  const basePrice = product.outlet && product.outletPrice ? product.outletPrice : product.price;
+  const esOutlet = Boolean(product.outlet && product.outletPrice);
+  const basePrice = esOutlet ? product.outletPrice : product.price;
   const transferPrice = Math.round(basePrice * 0.9);
   // Agotado = tiene talles cargados, hay stock cargado, y NINGÚN talle
   // tiene unidades. Un producto sin talles nunca se marca como agotado.
@@ -214,18 +215,23 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
               <ShareButton product={product} />
             </div>
 
-            {/* Los dos precios de la misma prenda: el de lista y el de
-                efectivo. El que "se cobra" hoy es el de arriba; el de
-                abajo aclara que es el precio si retira en el local. */}
+            {/* Los dos precios de la misma prenda. Arriba, en grande,
+                el precio de lista (o de outlet): es el precio "real"
+                de la prenda y el que más pesa en la decisión. Abajo,
+                más chica, la aclaración del 10% de descuento pagando
+                en efectivo o transferencia. Antes iba al revés (el
+                efectivo en grande y la lista chiquita) y confundía. */}
             <div className="rf-pdp-price">
               <div className="rf-pdp-price-main">
-                <span className="rf-pdp-now">{fmt(transferPrice)}</span>
-                <span className="rf-pdp-note">PAGANDO EN EFECTIVO</span>
-
+                <span className="rf-pdp-price-values">
+                  {esOutlet && <span className="rf-pdp-strike">{fmt(product.price)}</span>}
+                  <span className="rf-pdp-now">{fmt(basePrice)}</span>
+                </span>
+                <span className="rf-pdp-note">{esOutlet ? "PRECIO EN OUTLET" : "PRECIO DE LISTA"}</span>
               </div>
               <div className="rf-pdp-price-alt">
-                <span className={(product.outlet && product.outletPrice) ? "rf-pdp-strike" : ""}>{fmt(basePrice)}</span>
-                <span className="rf-pdp-note">RETIRO EN LOS TOLDOS</span>
+                <span>Efectivo o transferencia: <strong>{fmt(transferPrice)}</strong></span>
+                <span className="rf-pdp-note">10% OFF</span>
               </div>
             </div>
 

@@ -1764,21 +1764,25 @@
 .rf-pdp-share:hover { border-color: var(--ink); }
 
 /* BLOQUE DE PRECIO
-   Cómo se simula el descuento: el componente manda el precio final
-   y el precio original. El original va con "line-through" (el
-   tachado, que acá es la clase .rf-pdp-strike) y el final, grande,
-   en tinta. Si el final fuera un número inventado, el tachado es
-   lo único que sostiene la mentira, así que los dos tienen que
-   estar siempre juntos. */
+   Arriba, en grande, el precio de lista (o de outlet, con el precio
+   anterior tachado al lado: .rf-pdp-strike). Abajo, más chicas, la
+   aclaración del 10% de descuento en efectivo o transferencia. El
+   tachado solo aparece si el número de al lado es real (el precio
+   anterior), nunca un inventado. */
 .rf-pdp-price { margin: 16px 0 22px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .rf-pdp-price-main, .rf-pdp-price-alt { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-/* el precio que se paga: el número grande de la ficha */
+/* agrupa (tachado de outlet + precio grande) para que el flex del
+   main no los separe: el tachado queda pegado a la izquierda del
+   número. */
+.rf-pdp-price-values { display: flex; align-items: baseline; gap: 8px; }
 .rf-pdp-now { font-size: clamp(26px, 3vw, 34px); font-weight: 600; letter-spacing: -.02em; }
-/* precio original tachado y precio en cuotas, en una fila aparte */
+/* fila de abajo: precio en efectivo/transferencia, en gris y chico */
 .rf-pdp-price-alt { margin-top: 6px; }
 .rf-pdp-price-alt > span:first-child { font-size: 13px; color: var(--muted); }
-/* EL TACHADO DE OUTLET: el precio original va con línea cruzada
-   y el discount se entiende sin decir la palabra. */
+.rf-pdp-price-alt strong { color: var(--ink); font-weight: 600; }
+.rf-pdp-dark .rf-pdp-price-alt strong { color: #f2f0ea; }
+/* EL TACHADO DE OUTLET: el precio anterior va con línea cruzada
+   y el descuento se entiende sin decir la palabra. */
 .rf-pdp-strike { text-decoration: line-through; }
 /* nota al pie del precio (stock, cupón,etc.) */
 .rf-pdp-note { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-align: right; }
