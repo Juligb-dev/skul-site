@@ -3,7 +3,8 @@ import Fabric from "../components/Fabric.jsx";
 import ProductGrid from "../components/ProductGrid.jsx";
 import Reveal from "../components/Reveal.jsx";
 import { fmt } from "../utils/format.js";
-import { ChevronLeft, Ruler, X, Share2, Check, Truck, RefreshCcw, Percent, Plus, Minus } from "lucide-react";
+import { WHATSAPP_NUMBER } from "../data/config.js";
+import { ChevronLeft, Ruler, X, Share2, Check, Truck, RefreshCcw, Percent, Plus, Minus, MessageCircle } from "lucide-react";
 
 /* ============================================================
    FICHA DE PRODUCTO
@@ -270,6 +271,10 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                   // (el control real igual lo hace el Worker).
                   const qty = tracksStock ? stock[s] || 0 : Infinity;
                   const out = qty <= 0;
+                  // Con 1 a 3 unidades el talle avisa: "LA ÚLTIMA"
+                  // (pulsando) o "QUEDAN N". Es la urgencia de
+                  // streetwear: lo escaso se decide antes.
+                  const poco = tracksStock && qty > 0 && qty <= 3;
                   return (
                     <button
                       key={s}
@@ -277,7 +282,12 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                       className={`rf-pdp-size ${size === s ? "is-active" : ""} ${out ? "is-out" : ""}`}
                       onClick={() => !out && setSize(s)}
                     >
-                      {s}
+                      <span className="rf-pdp-size-letra">{s}</span>
+                      {poco && (
+                        <span className={`rf-pdp-size-stock ${qty === 1 ? "is-last" : ""}`}>
+                          {qty === 1 ? "ÚLTIMA" : `QUEDAN ${qty}`}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -299,10 +309,27 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
               {soldOut ? "SIN STOCK" : size ? `AGREGAR AL CARRITO — TALLE ${size}` : "SELECCIONÁ UN TALLE"}
             </button>
 
-            {/* Urgencia: solo con 1 o 2 unidades del talle elegido. */}
-            {size && tracksStock && stock[size] > 0 && stock[size] <= 2 && (
-              <p className="rf-pdp-hint rf-pdp-hint-alert">¡Quedan {stock[size]} {stock[size] === 1 ? "unidad" : "unidades"}!</p>
+            {/* Urgencia: solo con 1 a 3 unidades del talle elegido. Con
+                1 sola la animación de pulso hace que se decida. */}
+            {size && tracksStock && stock[size] > 0 && stock[size] <= 3 && (
+              <p className={`rf-pdp-hint rf-pdp-hint-alert ${stock[size] === 1 ? "is-last" : ""}`}>
+                {stock[size] === 1 ? "SE VA: QUEDÓ LA ÚLTIMA DE ESTE TALLE" : `¡Quedan ${stock[size]}!`}
+              </p>
             )}
+
+            {/* Consulta por WhatsApp: mensaje precargado con la prenda
+                (y el talle si ya lo eligió). El número es el de
+                config.js, el mismo de todo el sitio. */}
+            <a
+              href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+                `Hola! Me interesa "${product.name}"${size ? ` en talle ${size}` : ""} · ${fmt(basePrice)} (10% OFF en efectivo). ¿Sigue?`
+              )}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rf-pdp-wa tracked"
+            >
+              <MessageCircle size={15} /> Preguntar por WhatsApp
+            </a>
 
             {/* Envíos: los dos que ofrecemos siempre, los precios salen
                 en el checkout. */}
@@ -378,8 +405,20 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
 
       {/* barra fija de compra (celular): mismo botón que el del panel,
           duplicado abajo para que quede al alcance del pulgar sin
-          tener que volver arriba en la página. */}
+          tener que volver arriba en la página. Al lado, el atajo de
+          WhatsApp con la prenda precargada. */}
       <div className="rf-pdp-sticky">
+        <a
+          href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+            `Hola! Me interesa "${product.name}"${size ? ` en talle ${size}` : ""} · ${fmt(basePrice)}. ¿Sigue?`
+          )}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rf-pdp-sticky-wa"
+          aria-label="Preguntar por WhatsApp"
+        >
+          <MessageCircle size={20} />
+        </a>
         <button disabled={!size || soldOut} onClick={() => addToCart(product, size, colors[colorIdx])}>
           {soldOut ? "SIN STOCK" : size ? `AGREGAR — TALLE ${size}` : "SELECCIONÁ UN TALLE"}
         </button>

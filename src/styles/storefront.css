@@ -1818,12 +1818,19 @@
    anillos: sin él parecería un borde grueso y chueco). */
 .rf-pdp-swatches button.is-active { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--ink); }
 
-/* TALLES: botones con alto fijo para que la fila sea una tira. */
+/* TALLES: botones con alto fijo para que la fila sea una tira.
+   Con poco stock (1 a 3 unidades) el botón pasa a tener dos líneas:
+   la letra y la etiquetita de abajo ("ÚLTIMA" o "QUEDAN N"). */
 .rf-pdp-sizes { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .rf-pdp-size {
-  min-width: 52px;
-  height: 40px;
-  padding: 0 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 58px;
+  height: 44px;
+  padding: 4px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: rgba(255, 255, 255, .6);
@@ -1833,6 +1840,11 @@
   cursor: pointer;
   transition: background .2s ease, color .2s ease, border-color .2s ease;
 }
+.rf-pdp-size-letra { line-height: 1; }
+.rf-pdp-size-stock { font-size: 7px; line-height: 1; letter-spacing: .06em; font-weight: 700; color: var(--muted); white-space: nowrap; }
+/* la última unidad: en ember y con el mismo pulso del outlet */
+.rf-pdp-size-stock.is-last { color: var(--ember); animation: outletPulse 1.1s ease-in-out infinite; }
+.rf-pdp-hint-alert.is-last { animation: outletPulse 1.1s ease-in-out infinite; }
 .rf-pdp-size:hover { border-color: var(--ink); }
 .rf-pdp-size.is-active { background: var(--ink); border-color: var(--ink); color: #fff; }
 /* talle sin stock: tachado y apagado, cursor prohibido */
@@ -1880,6 +1892,27 @@
    apagado y no parezca que se puede comprar */
 .rf-pdp-cta:not(:disabled):hover { background: #000; }
 .rf-pdp-cta:disabled { background: #9c9c95; cursor: not-allowed; }
+
+/* CONSULTA POR WHATSAPP: botón fantasma debajo del de compra, con el
+   mensaje de la prenda precargado. Mismo estilo "ghost" del resto. */
+.rf-pdp-wa {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 16px;
+  border: 1px solid var(--black);
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-size: 11.5px;
+  letter-spacing: .1em;
+  font-weight: 600;
+  color: var(--black);
+  transition: background .2s ease, color .2s ease;
+}
+.rf-pdp-wa:hover { background: var(--black); color: var(--white); }
+.rf-pdp-dark .rf-pdp-wa { border-color: rgba(255,255,255,.35); color: #f2f0ea; }
+.rf-pdp-dark .rf-pdp-wa:hover { background: #f2f0ea; color: #111; }
 
 /* la línea de envíos / forma de pago bajo el botón */
 .rf-pdp-ship { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 11px; color: var(--muted); }
@@ -2091,7 +2124,8 @@
   .rf-pdp-thumbs button { width: 52px; height: 58px; border-radius: 8px; }
   .rf-pdp-panel { padding: 20px 16px 18px; }
   .rf-pdp-sticky {
-    display: block;
+    display: flex;
+    gap: 8px;
     position: fixed;
     inset: auto 0 0;
     z-index: 80;
@@ -2102,7 +2136,7 @@
     -webkit-backdrop-filter: blur(16px);
   }
   .rf-pdp-sticky button {
-    width: 100%;
+    flex: 1;
     min-height: 50px;
     border: 0;
     border-radius: var(--radius-control);
@@ -2115,6 +2149,16 @@
     cursor: pointer;
   }
   .rf-pdp-sticky button:disabled { background: #9c9c95; }
+  .rf-pdp-sticky-wa {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 50px;
+    min-height: 50px;
+    border-radius: var(--radius-control);
+    background: var(--black);
+    color: #fff;
+  }
 
   .rf-catstory-inner { padding: 92px var(--gutter) 54px; }
   .rf-catstory-name { font-size: clamp(20px, 7vw, 32px); }

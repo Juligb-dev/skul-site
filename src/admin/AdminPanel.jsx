@@ -12,6 +12,7 @@ import { redondearMontoGiftCard, saldoGiftCard, textoVencimiento } from "../util
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import SafeImg from "../components/SafeImg.jsx";
 import { uniqueSlug, slugify } from "../utils/slug.js";
+import FlyersTab from "./FlyersTab.jsx";
 import { getDoc, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { db } from "../firebase.js";
 
@@ -275,6 +276,7 @@ export default function AdminPanel() {
           <TabBtn active={tab === "suscriptores"} onClick={() => setTab("suscriptores")}>
             Suscriptores{subscriberCount != null ? ` (${subscriberCount})` : ""}
           </TabBtn>
+          <TabBtn active={tab === "flyers"} onClick={() => setTab("flyers")}>Flyers</TabBtn>
         </div>
         {/* Una sola pestaña montada a la vez. Los && son cortos de
             circuito: si la condición es falsa React ni llega a evaluar
@@ -285,6 +287,7 @@ export default function AdminPanel() {
         {tab === "cupones" && <CuponesTab />}
         {tab === "giftcards" && <GiftCardsTab />}
         {tab === "suscriptores" && <SuscriptoresTab />}
+        {tab === "flyers" && <FlyersTab />}
       </div>
     </div>
   );
