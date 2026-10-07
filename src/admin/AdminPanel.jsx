@@ -10,6 +10,7 @@ import { CATS, SIZES, getSizesForCat, GIFT_CARD_MAX, GIFT_CARD_MIN } from "../da
 import { fmt } from "../utils/format.js";
 import { redondearMontoGiftCard, saldoGiftCard, textoVencimiento } from "../utils/giftcards.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
+import SafeImg from "../components/SafeImg.jsx";
 import { uniqueSlug, slugify } from "../utils/slug.js";
 import { getDoc, doc, updateDoc, increment, runTransaction } from "firebase/firestore";
 import { db } from "../firebase.js";
@@ -750,7 +751,7 @@ function EstadoTab() {
       const url = await uploadToCloudinary(file);
       await setSiteStatus({ heroImage: url });
     } catch (err) {
-      alert("Error al subir imagen de portada");
+      alert(err?.message || "Error al subir la portada");
     } finally {
       setHeroUploading(false);
       // Vaciar el input es lo que permite volver a elegir EL MISMO
@@ -776,7 +777,7 @@ function EstadoTab() {
       const url = await uploadToCloudinary(file);
       await setSiteStatus({ heroImageMobile: url });
     } catch (err) {
-      alert("Error al subir imagen de portada para celular");
+      alert(err?.message || "Error al subir la portada para celular");
     } finally {
       setHeroMobileUploading(false);
       e.target.value = "";
@@ -996,29 +997,29 @@ function EstadoTab() {
           "guardar" para las imágenes, el archivo elegido es el
           guardado. */}
       <div style={{ border: "1px solid var(--black)", padding: 20, marginTop: 24 }}>
-        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Foto de portada (Home)</p>
+        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Portada del Home (foto o video)</p>
         {status.heroImage && (
           <div style={{ marginBottom: 12 }}>
-            <img src={status.heroImage} alt="Portada actual" style={{ width: "100%", maxHeight: 220, objectFit: "cover", display: "block", marginBottom: 8 }} />
+            <SafeImg src={status.heroImage} alt="Portada actual" style={{ width: "100%", maxHeight: 220, objectFit: "cover", display: "block", marginBottom: 8 }} />
             <button onClick={removeHero} className="btn-ghost tracked" style={{ fontSize: 12 }}>Sacar foto</button>
           </div>
         )}
-        <input type="file" accept="image/*" onChange={uploadHero} disabled={heroUploading} />
+        <input type="file" accept="image/*,video/*" onChange={uploadHero} disabled={heroUploading} />
         {heroUploading && <p style={{ fontSize: 12, color: "var(--grey-3)", marginTop: 6 }}>Subiendo…</p>}
 
         <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line, #ccc)" }}>
-          <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Foto de portada para celular</p>
+          <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Portada para celular (foto o video)</p>
           <p style={{ fontSize: 12, color: "var(--grey-3)", marginBottom: 10 }}>
-            Subí acá una foto <strong>vertical</strong> (más alta que ancha, tipo 9:16, como la pantalla del teléfono).
+            Subí acá una foto o video <strong>vertical</strong> (más alto que ancho, tipo 9:16, como la pantalla del teléfono).
             En el celular se muestra esta y llena toda la pantalla; en la compu se sigue usando la de arriba.
           </p>
           {status.heroImageMobile && (
             <div style={{ marginBottom: 12 }}>
-              <img src={status.heroImageMobile} alt="Portada celular actual" style={{ width: 130, maxHeight: 220, objectFit: "cover", display: "block", marginBottom: 8 }} />
+              <SafeImg src={status.heroImageMobile} alt="Portada celular actual" style={{ width: 130, maxHeight: 220, objectFit: "cover", display: "block", marginBottom: 8 }} />
               <button onClick={removeHeroMobile} className="btn-ghost tracked" style={{ fontSize: 12 }}>Sacar foto celular</button>
             </div>
           )}
-          <input type="file" accept="image/*" onChange={uploadHeroMobile} disabled={heroMobileUploading} />
+          <input type="file" accept="image/*,video/*" onChange={uploadHeroMobile} disabled={heroMobileUploading} />
           {heroMobileUploading && <p style={{ fontSize: 12, color: "var(--grey-3)", marginTop: 6 }}>Subiendo…</p>}
         </div>
       </div>
@@ -1029,12 +1030,12 @@ function EstadoTab() {
           SVG de /public/editorial), así que la sección nunca queda
           vacía aunque el dueño suba nada. */}
       <div style={{ border: "1px solid var(--black)", padding: 20, marginTop: 24 }}>
-        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Fotos destacadas (looks)</p>
+        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Fotos o videos destacados (looks)</p>
         {(status.lookbookPhotos || []).length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: 8, marginBottom: 12 }}>
             {status.lookbookPhotos.map((url) => (
               <div key={url} style={{ position: "relative" }}>
-                <img src={url} alt="" style={{ width: "100%", height: 90, objectFit: "cover", display: "block" }} />
+                <SafeImg src={url} alt="" style={{ width: "100%", height: 90, objectFit: "cover", display: "block" }} />
                 <button
                   onClick={() => removeLookPhoto(url)}
                   style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,.7)", color: "#fff", border: "none", width: 20, height: 20, fontSize: 12, cursor: "pointer" }}
@@ -1044,7 +1045,7 @@ function EstadoTab() {
             ))}
           </div>
         )}
-        <input type="file" accept="image/*" multiple onChange={uploadLookPhotos} disabled={lookUploading} />
+        <input type="file" accept="image/*,video/*" multiple onChange={uploadLookPhotos} disabled={lookUploading} />
         {lookUploading && <p style={{ fontSize: 12, color: "var(--grey-3)", marginTop: 6 }}>Subiendo…</p>}
       </div>
 
@@ -1055,18 +1056,18 @@ function EstadoTab() {
           aparte a propósito: aunque mañana se agrega una categoría al
           catálogo, no tiene por qué aparecer con foto en el Home. */}
       <div style={{ border: "1px solid var(--black)", padding: 20, marginTop: 24 }}>
-        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Fotos de categorías (Home)</p>
+        <p className="tracked" style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Fotos o videos de categorías (Home)</p>
         <div style={{ display: "grid", gap: 14 }}>
           {HOME_CATEGORY_IDS.map(({ id, label }) => (
             <div key={id} style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 64, height: 80, background: "var(--white)", border: "1px solid var(--black)", flexShrink: 0, overflow: "hidden" }}>
                 {status.categoryImages?.[id] && (
-                  <img src={status.categoryImages[id]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <SafeImg src={status.categoryImages[id]} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 )}
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 6 }}>{label}</p>
-                <input type="file" accept="image/*" onChange={(e) => uploadCategoryImage(id, e)} disabled={catUploading === id} />
+                <input type="file" accept="image/*,video/*" onChange={(e) => uploadCategoryImage(id, e)} disabled={catUploading === id} />
                 {catUploading === id && <p style={{ fontSize: 11, color: "var(--grey-3)" }}>Subiendo…</p>}
                 {status.categoryImages?.[id] && (
                   <button onClick={() => removeCategoryImage(id)} className="btn-ghost tracked" style={{ fontSize: 11, marginTop: 4 }}>Sacar foto</button>

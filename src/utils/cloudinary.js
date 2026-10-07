@@ -30,6 +30,21 @@ import { auth } from "../firebase.js";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_CLOUD_API_KEY, ORDER_NOTIFY_WORKER_URL } from "../data/config.js";
 
 /**
+ * ¿Esta URL de Cloudinary es un video?
+ *
+ * Cloudinary guarda imágenes y videos en rutas distintas: las fotos son
+ * ".../image/upload/..." y los videos ".../video/upload/...". Con mirar la
+ * URL alcanza para saber qué elemento hay que dibujar (<img> o <video>),
+ * sin guardar un campo extra en Firestore.
+ *
+ * Lo usan SafeImg (para renderizar video donde antes solo había foto) y
+ * el panel de admin (para la previsualización).
+ */
+export function esVideoUrl(url) {
+  return typeof url === "string" && url.includes("/video/upload/");
+}
+
+/**
  * Sube una imagen (un File del <input> o un data URL) a Cloudinary y
  * devuelve la URL pública final (servida por el CDN de Cloudinary).
  *

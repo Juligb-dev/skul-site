@@ -975,7 +975,7 @@
   padding: 0 var(--gutter);
   background: transparent;
 }
-.rotten-lookbook-grid img {
+.rotten-lookbook-grid img, .rotten-lookbook-grid video {
   width: 100%;
   height: 100%;
   min-height: 340px;
@@ -1285,8 +1285,8 @@
   .rotten-hero-content { padding: 108px var(--gutter) 44px; }
   .rotten-hero-content h1 { font-size: clamp(32px, 9.5vw, 56px); }
   .rotten-lookbook-grid { grid-template-columns: 1.55fr 1fr; }
-  .rotten-lookbook-grid img { min-height: 220px; }
-  .rotten-lookbook-grid img:last-child { display: none; }
+  .rotten-lookbook-grid img, .rotten-lookbook-grid video { min-height: 220px; }
+  .rotten-lookbook-grid img:last-child, .rotten-lookbook-grid video:last-child { display: none; }
   /* dos columnas de categorías y tarjetas más bajas */
   .rotten-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rotten-category-grid button { min-height: 148px; }
@@ -1619,8 +1619,8 @@
   background: var(--paper-200);
   cursor: pointer;
 }
-.rf-megamenu-feature img { width: 100%; height: 100%; object-fit: cover; transition: transform .6s var(--ease-quart); }
-.rf-megamenu-feature button:hover img { transform: scale(1.05); }
+.rf-megamenu-feature img, .rf-megamenu-feature video { width: 100%; height: 100%; object-fit: cover; transition: transform .6s var(--ease-quart); }
+.rf-megamenu-feature button:hover img, .rf-megamenu-feature button:hover video { transform: scale(1.05); }
 /* el nombre de la foto va abajo, con sombra de texto para poder
    leerse sobre la foto sin un fondo propio */
 .rf-megamenu-feature span {
@@ -2877,7 +2877,7 @@ input:focus, textarea:focus, select:focus, button:focus-visible {
   background: transparent !important;
 }
 .rotten-lookbook-grid > .reveal { height: 100% !important; }
-.rotten-lookbook-grid img {
+.rotten-lookbook-grid img, .rotten-lookbook-grid video {
   width: 100% !important;
   height: 100% !important;
   min-height: 0 !important;
