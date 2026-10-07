@@ -242,7 +242,9 @@ describe("Envío por Correo Argentino", () => {
 
   it("retiro en sucursal: filtra agencias y avisa el código de la elegida", async () => {
     getShippingRates.mockResolvedValueOnce({ domicilio: 3200, sucursal: 2600 });
-    getAgencies.mockResolvedValueOnce([
+    // Persistente (no Once): la lista se pide dos veces — de paso con la
+    // cotización y, en algunos caminos, otra vez al elegir la sucursal.
+    getAgencies.mockResolvedValue([
       { code: "AG1", name: "Correo Central", city: "Los Toldos", address: "Av. 1" },
       { code: "AG2", name: "Expreso Norte", city: "Junín", address: "Calle 2" },
     ]);
@@ -250,13 +252,15 @@ describe("Envío por Correo Argentino", () => {
     await userEvent.type(screen.getByPlaceholderText("Ej: 1704"), "1704");
     fireEvent.click(screen.getByText("Calcular envío"));
     await screen.findByText("Retiro en sucursal de Correo");
+    // La lista se pre-carga con la cotización: al tocar "retiro en
+    // sucursal" aparece sola, ordenada, sin que el cliente escriba nada.
+    expect(getAgencies).toHaveBeenCalledWith("B");
     fireEvent.click(screen.getByText("Retiro en sucursal de Correo"));
     // Cada fila muestra el nombre y, abajo, la dirección completa.
     await screen.findByText("Correo Central");
     expect(screen.getByText("Av. 1, Los Toldos")).toBeInTheDocument();
-    expect(getAgencies).toHaveBeenCalledWith("B");
-    // Filtrar la lista
-    await userEvent.type(screen.getByPlaceholderText("Buscar sucursal por calle o localidad…"), "Junín");
+    // Filtrar la lista (opcional)
+    await userEvent.type(screen.getByPlaceholderText("Filtrar sucursal (opcional): nombre o calle…"), "Junín");
     expect(screen.queryByText("Correo Central")).not.toBeInTheDocument();
     expect(screen.getByText("Expreso Norte")).toBeInTheDocument();
     expect(screen.getByText("Calle 2, Junín")).toBeInTheDocument();

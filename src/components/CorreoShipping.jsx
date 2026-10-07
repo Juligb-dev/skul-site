@@ -11,9 +11,12 @@ const inputStyle = {
 };
 
 /** Calculadora de envío por Correo Argentino para el checkout.
- *  - Pide provincia + código postal, cotiza domicilio y sucursal.
- *  - Si el cliente elige "sucursal", muestra la lista de agencias
- *    de esa provincia para que busque la suya por nombre/localidad.
+ *  - Pide código postal (la provincia la deriva sola del CP), cotiza
+ *    domicilio y sucursal y, de paso, deja pre-cargada la lista de
+ *    sucursales: el cliente escribe UNA sola cosa (el CP) y cuando
+ *    elige "retiro en sucursal" la lista ya aparece ordenada con las
+ *    de su CP primero. El filtro de texto sigue existiendo, pero es
+ *    opcional: solo por si no ve la suya.
  *  - Cuando el cliente confirma una opción, llama a onChange con
  *    { type, price, postalCode, provinceCode, agencyCode, agencyName }
  *    (onChange(null) si todavía no hay nada confirmado).
@@ -31,7 +34,8 @@ const inputStyle = {
  * precio viejo pegado a un código postal nuevo.
  */
 export default function CorreoShipping({ value, onChange, weight }) {
-// "B" es Buenos Aires: la provincia por defecto.
+// "B" es Buenos Aires: la provincia por defecto (si el CP es de otra,
+// se corrige sola apenas se cotiza).
 const [provinceCode, setProvinceCode] = useState("B");
   const [postalCode, setPostalCode] = useState("");
   const [rates, setRates] = useState(null); // { domicilio, sucursal }
@@ -47,18 +51,50 @@ const [provinceCode, setProvinceCode] = useState("B");
   // Etiqueta del destino geocodificado ("Ramos Mejía"): si existe, la
   // lista quedó ordenada por cercanía al CP escrito.
   const [destino, setDestino] = useState("");
+  // Lista pedida de paso al cotizar, para que al elegir "retiro en
+  // sucursal" no haya que esperar ni escribir nada más. Se guarda con
+  // el CP y la provincia con los que se pidió: si algo cambió, no sirve
+  // y se vuelve a pedir.
+  const [prefetch, setPrefetch] = useState(null); // { cp, provinceCode, list, geo }
 
-  /** Cotiza el envío a domicilio y a sucursal para el CP tipeado. */
+  /** Cotiza el envío a domicilio y a sucursal para el CP tipeado.
+   *  En paralelo geocodifica el CP: con eso (1) la provincia se
+   *  corrige sola y (2) queda lista la información para ordenar las
+   *  sucursales por cercanía sin que el cliente escriba nada más. */
   const calcular = async () => {
     if (!postalCode.trim()) return;
+    const cp = postalCode.trim();
     setLoadingRates(true);
     setRatesError("");
     setRates(null);
     onChange(null); // limpiar lo que estaba elegido antes de recalcular
     setAgencies(null);
+    setDestino("");
+    setPrefetch(null);
     try {
-    const r = await getShippingRates(postalCode.trim(), weight);
+      const [r, geo] = await Promise.all([
+        getShippingRates(cp, weight),
+        geocodificarCP(cp).catch(() => null),
+      ]);
       setRates(r);
+      // Provincia derivada del CP: el select se actualiza solo y el
+      // cliente no tiene que tildar nada (los precios no dependen de
+      // la provincia, así que la cotización sigue siendo válida).
+      let prov = provinceCode;
+      if (geo?.provinceCode && geo.provinceCode !== provinceCode) {
+        setProvinceCode(geo.provinceCode);
+        prov = geo.provinceCode;
+      }
+      // De paso, en segundo plano: la lista de sucursales para cuando
+      // el cliente clickee "retiro en sucursal". Si falla, no pasa
+      // nada: ahí se vuelve a pedir al abrir la lista.
+      if (r.sucursal != null) {
+        Promise.resolve(getAgencies(prov))
+          .then((list) => {
+            if (Array.isArray(list)) setPrefetch({ cp, provinceCode: prov, list, geo });
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       // El mensaje de la API se muestra tal cual: son errores de
       // Correo (CP inexistente, CP sin cobertura) que el cliente
@@ -76,17 +112,15 @@ const [provinceCode, setProvinceCode] = useState("B");
     onChange({ type: "domicilio", price: rates.domicilio, postalCode: postalCode.trim(), provinceCode });
   };
 
-  /** Pide la lista de agencias y abre la búsqueda, lo más cerca posible
-   *  del CP del cliente.
-   *  1. En paralelo: geocodifica el CP (coordenadas para ordenar por
-   *     cercanía) y pide las agencias de la provincia tildada.
-   *  2. Si el geocodificador dice que el CP es de OTRA provincia,
-   *     corrige el selector y vuelve a pedir: así no se listan
-   *     sucursales de una provincia que no le corresponde al cliente
-   *    (MiCorreo solo filtra por provincia, el filtro fino es acá).
-   *  3. Ordena por distancia al CP y anota los km de cada sucursal.
-   *  Si el geocoding falla o el CP no existe, la lista se muestra igual
-   *  (sin ordenar), tal cual como antes.
+  /** Abre la lista de sucursales ya ordenada: primero las del CP del
+   *  cliente (mismo número de CPA), después por cercanía. No hace
+   *  falta que escriba nombre de lugar ninguno.
+   *  1. Usa la lista pre-cargada al cotizar si el CP y la provincia
+   *    siguen iguales (camino normal: sin esperas).
+   *  2. Si no, pide geocoding + agencias en paralelo; si el geo dice
+   *     otra provincia, corrige el selector y vuelve a pedir.
+   *  Si el geocoding falla, el orden por CP del punto 1 (y la
+   *  búsqueda opcional) siguen funcionando igual.
    *  Primero tiro la selección anterior porque el precio de sucursal
    *  sin agencia elegida no sirve. */
   const abrirBusquedaSucursal = async () => {
@@ -97,22 +131,38 @@ const [provinceCode, setProvinceCode] = useState("B");
     setAgencyFilter("");
     try {
       const cp = postalCode.trim();
-      let [geo, list] = await Promise.all([
-        geocodificarCP(cp).catch(() => null),
-        getAgencies(provinceCode),
-      ]);
-      if (geo?.provinceCode && geo.provinceCode !== provinceCode) {
-        setProvinceCode(geo.provinceCode);
-        list = await getAgencies(geo.provinceCode);
+      let geo = null;
+      let list;
+      if (prefetch && prefetch.cp === cp && prefetch.provinceCode === provinceCode) {
+        list = prefetch.list;
+        geo = prefetch.geo;
+      } else {
+        [geo, list] = await Promise.all([
+          geocodificarCP(cp).catch(() => null),
+          getAgencies(provinceCode),
+        ]);
+        if (geo?.provinceCode && geo.provinceCode !== provinceCode) {
+          setProvinceCode(geo.provinceCode);
+          list = await getAgencies(geo.provinceCode);
+        }
       }
-      let conDistancia = list;
-      if (geo?.lat != null) {
-        conDistancia = list
-          .map((a) => (a.lat != null ? { ...a, distKm: distanciaKm(geo.lat, geo.lng, a.lat, a.lng) } : a))
-          .sort((x, y) => (x.distKm ?? Infinity) - (y.distKm ?? Infinity));
-        setDestino(geo.localidad || cp);
-      }
-      setAgencies(conDistancia);
+      // "De mi zona primero": las sucursales cuyo CPA coincide con el
+      // CP escrito (mismo pueblo) van arriba aunque otra esté más
+      // cerca en línea recta. Es el match que garantiza que el cliente
+      // vea LA SUYA sin escribir nada, aunque el geocoding falle.
+      const cpNum = (cp.match(/\d{4}/) || [])[0];
+      const conOrden = (Array.isArray(list) ? list : [])
+        .map((a) => ({
+          ...a,
+          enMiCP: Boolean(cpNum && a.postalCode && a.postalCode.replace(/\D/g, "") === cpNum),
+          distKm: geo?.lat != null && a.lat != null ? distanciaKm(geo.lat, geo.lng, a.lat, a.lng) : null,
+        }))
+        .sort((x, y) => {
+          if (x.enMiCP !== y.enMiCP) return x.enMiCP ? -1 : 1;
+          return (x.distKm ?? Infinity) - (y.distKm ?? Infinity);
+        });
+      if (geo?.lat != null) setDestino(geo.localidad || cp);
+      setAgencies(conOrden);
     } catch (err) {
       setAgenciesError(err.message);
     } finally {
@@ -141,6 +191,10 @@ const [provinceCode, setProvinceCode] = useState("B");
 
   /** "3,2 km" para distancias cortas, "148 km" para las largas. */
   const fmtKm = (km) => (km < 10 ? `${km.toFixed(1).replace(".", ",")} km` : `${Math.round(km)} km`);
+
+  // ¿Hay sucursales del mismo CP del cliente en la lista? Se usa para
+  // el aviso de arriba: si las hay, el cliente ve la suya sin buscar.
+  const cpMatches = (agencies || []).some((a) => a.enMiCP);
 
   return (
     <div style={{ display: "grid", gap: 10 }}>
@@ -208,14 +262,17 @@ const [provinceCode, setProvinceCode] = useState("B");
           scroll propio, así el checkout no crece infinito. */}
       {agencies && !value?.agencyCode && (
         <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
-          {/* Aviso de orden: si se geocodificó el CP, la lista está de más
-              cercana a más lejana; si no, queda el orden de la API. */}
-          {destino && (
-            <p style={{ fontSize: 11.5, color: "var(--grey-3)" }}>
-              Más cercanas primero a tu CP ({destino}). Fijá la calle en cada sucursal.
-            </p>
-          )}
-          <input value={agencyFilter} onChange={(e) => setAgencyFilter(e.target.value)} placeholder="Buscar sucursal por calle o localidad…" style={inputStyle} />
+          {/* Aviso de orden: con el CP solo ya está todo — primero las
+              sucursales del propio CP y después las más cercanas. El
+              filtro es para el caso raro, por eso va marcado opcional. */}
+          <p style={{ fontSize: 11.5, color: "var(--grey-3)" }}>
+            {destino
+              ? `Tus sucursales: primero las de ${destino} y las más cercanas. No hace falta buscar.`
+              : cpMatches
+                ? "Primero las sucursales de tu código postal."
+                : "Ordenadas de más cercana a más lejana."}
+          </p>
+          <input value={agencyFilter} onChange={(e) => setAgencyFilter(e.target.value)} placeholder="Filtrar sucursal (opcional): nombre o calle…" style={{ ...inputStyle, fontSize: 12.5, padding: "8px 10px" }} />
           <div style={{ maxHeight: 220, overflowY: "auto", display: "grid", gap: 4 }}>
             {/* Recorto a 40: con el orden por cercanía son las 40 más
               próximas, así el scroll interno queda usable. */}
