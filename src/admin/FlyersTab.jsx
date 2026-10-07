@@ -8,30 +8,25 @@ import { fmt } from "../utils/format.js";
  *  ------------------------------------------------------------
  *
  *  Qué es: una pestaña más del panel. El dueño elige una prenda, una
- *  plantilla, retoca el título y el número de drop, y exporta un PNG
- *  de 1080×1350 (historia / portada vertical de Instagram) listo para
- *  postear.
+ *  de las composiciones, el tema (claro u oscuro), retoca el título y
+ *  el número de drop, y exporta un PNG de 1080×1350 (historia /
+ *  portada vertical de Instagram) listo para postear.
  *
- *  CÓMO EVITA EL LOOK GENÉRICO: no hay fotos torcidas, ni cinta de
- *  enmascarar, ni polaroids: todas muletillas de plantilla IA. El
- *  sistema visual es el mismo que ya usa la tienda — tipografía
- *  pesada alineada, líneas finas, numeración, papel y una textura de
- *  marca (public/editorial) — sumado a detalles de imprenta reales:
- *  marcas de registro en las esquinas, reglas punteadas, numerales
- *  fantasma y cuadrícula de papel técnico. Cuatro composiciones muy
- *  distintas entre sí (una sola foto, ficha técnica con datos, dúo de
- *  fotos, póster tipográfico), así nunca sale dos veces lo mismo.
+ *  LA REGLA DEL DISEÑO: contención. Fotos nunca torcidas ni cortadas,
+ *  una sola tipografía, sin collage ni decoración encima del texto.
+ *  Lo "profesional" acá es el aire y la alineación, no la cantidad de
+ *  elementos. Son seis composiciones distintas entre sí (misma
+ *  planta, distinta disposición) y un toggle claro/oscuro para ver
+ *  cuál le queda mejor a cada prenda.
  *
  *  LA FOTO NUNCA SE CORTA: las fotos de las prendas son verticales
- *  (800×1000 a 800×1200) y en un marco horizontal se descuadraturaban
- *  con object-fit: cover, cortando el género. Acá el ayate real de la
- *  imagen se mide al cargar (`Foto` mide el ratio natural) y el marco
- *  adopta ESA proporción: la prenda entra siempre completa, y por eso
- *  la foto va en una columna y no a sangre.
+ *  (800×1000 a 800×1200) y en un marco horizontal object-fit: cover
+ *  corta el género. Acá se mide el ratio natural de la imagen al
+ *  cargar (`Foto`) y el marco adopta ESA proporción: la prenda entra
+ *  completa. Por eso la foto va en una columna y no a sangre.
  *
  *  Cómo se exporta: el nodo se dibuja a 540×675 (la mitad de lo
- *  final) y `toPng` con pixelRatio 2 lo lleva a 1080×1350. En la
- *  pantalla se ve en miniatura (escalado al 45%).
+ *  final) y `toPng` con pixelRatio 2 lo lleva a 1080×1350.
  *
  *  Qué exporta: `FlyersTab`, el componente completo de la pestaña.
  */
@@ -40,254 +35,235 @@ const DIS = 540; // ancho de diseño, en CSS px
 const ALT = 675;
 
 const PLANTILLAS = [
-  { id: "report", nombre: "REPORTE" },
-  { id: "ficha", nombre: "FICHA" },
+  { id: "centro", nombre: "CENTRO" },
+  { id: "grilla", nombre: "GRILLA" },
+  { id: "lateral", nombre: "LATERAL" },
+  { id: "min", nombre: "MÍNIMA" },
   { id: "duo", nombre: "DÚO" },
-  { id: "poster", nombre: "POSTER" },
+  { id: "tipo", nombre: "TIPOGRAFÍA" },
 ];
 
-// Colores de marca, hardcodeados a propósito: el flyer tiene que verse
-// igual sin importar el tema claro/oscuro del sitio.
-const NEGRO = "#0d0c0a";
-const CARBON = "#14120f";
-const PAPEL = "#eceae1";
-const TINTA = "#15120d";
-const HUMO = "#f2efe6";
-const MUTAO = "#8a8577";
-const GRIS = "#6f6759";
+// Colores de marca. El tema (claro u oscuro) vive en TEMAS y lo elige
+// el dueño con un toggle para probar qué le queda mejor a la prenda.
 const EMBER = "#bf4d26";
-const TEXTO_OSCURO = "url(/editorial/skul-street.svg) center/cover"; // textura de marca
+const TEMAS = {
+  oscuro: {
+    bg: "#0d0c0a",
+    tinta: "#f2efe6",
+    tenue: "#8a8577",
+    linea: "rgba(242,239,230,.2)",
+    foto: "rgba(242,239,230,.22)",
+  },
+  claro: {
+    bg: "#eceae1",
+    tinta: "#15120d",
+    tenue: "#6f6759",
+    linea: "rgba(21,18,13,.35)",
+    foto: "rgba(21,18,13,.35)",
+  },
+};
 
-const MONO = "'SF Mono','Menlo','Consolas',monospace"; // números/etiquetas
+const MONO = "'SF Mono','Menlo','Consolas',monospace"; // solo números
 
-/* Marionetas de texto compartidas, para que las plantillas hablen el
-   mismo idioma visual. */
 const T = {
   o: (f) => ({ fontFamily: "'Arimo','Helvetica Neue',Arial,sans-serif", fontWeight: 700, letterSpacing: f || ".12em", textTransform: "uppercase" }),
   m: (f) => ({ fontFamily: MONO, letterSpacing: f || ".18em" }),
 };
 
-/** Cabecera común: wordmark SKUL a la izquierda, número de drop a la
- *  derecha, y una línea fina abajo. Es el mismo patrón del header de
- *  la tienda: montaje coherente, no collage. */
-const Cabecera = ({ numero, dark = false }) => {
-  const tinta = dark ? HUMO : TINTA;
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <span style={{ ...T.o("28px"), fontSize: 26, color: tinta }}>SKUL</span>
-        <span style={{ ...T.m("10px"), fontSize: 12, color: dark ? MUTAO : GRIS }}>DROP Nº {numero}</span>
-      </div>
-      <div style={{ height: 1, background: dark ? "rgba(242,239,230,.22)" : "rgba(21,18,13,.35)", marginTop: 9 }} />
+/** Cabecera de sistema: wordmark SKUL a la izquierda, número de drop a
+ *  la derecha y una línea fina. Misma en las seis composiciones, así
+ *  el drop se reconoce como SKUL antes que nada. */
+const Cabecera = ({ numero, tema }) => (
+  <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+      <span style={{ ...T.o("30px"), fontSize: 25, color: tema.tinta }}>SKUL</span>
+      <span style={{ ...T.m("10px"), fontSize: 12, color: tema.tenue }}>DROP {numero}</span>
     </div>
-  );
-};
+    <div style={{ height: 1, background: tema.linea, marginTop: 9 }} />
+  </div>
+);
 
-/** Marcas de registro (cuatro cantoneras): la firma de "material de
- *  imprenta", algo que ninguna herramienta de flyers genéricos pone. */
-const Marca = ({ color = "rgba(242,239,230,.34)", tam = 16 }) => {
-  const lados = [
-    { top: 0, left: 0, borderTop: `1px solid ${color}`, borderLeft: `1px solid ${color}` },
-    { top: 0, right: 0, borderTop: `1px solid ${color}`, borderRight: `1px solid ${color}` },
-    { bottom: 0, left: 0, borderBottom: `1px solid ${color}`, borderLeft: `1px solid ${color}` },
-    { bottom: 0, right: 0, borderBottom: `1px solid ${color}`, borderRight: `1px solid ${color}` },
-  ];
-  return (
-    <div style={{ position: "absolute", inset: 13, pointerEvents: "none" }}>
-      {lados.map((s, i) => <div key={i} style={{ position: "absolute", width: tam, height: tam, ...s }} />)}
+/** Pie de página quieto: una línea y una sola línea de texto. Nada más. */
+const Pie = ({ tema }) => (
+  <div>
+    <div style={{ borderTop: "1px solid " + tema.linea, marginTop: 26, paddingTop: 12, display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 9.5, color: tema.tenue }}>
+      <span>SKUL STREETWEAR</span>
+      <span>LOS TOLDOS · BUENOS AIRES</span>
     </div>
-  );
-};
+  </div>
+);
 
-/** La foto de la prenda, a proporción REAL: mide el ratio natural de
- *  la imagen al cargar (las fotos van de 0.67 a 0.8) y el marco
- *  adopta esa proporción con object-fit: cover. Como marco y foto
- *  comparten ratio, no recorta: la prenda entra siempre completa. */
-function Foto({ src, borde, pos = "center 30%", extra }) {
+/** La foto de la prenda, a proporción REAL (ratio natural medido al
+ *  cargar): la prenda entra siempre completa, sin recortes. */
+function Foto({ src, borde, pos = "center 30%" }) {
   const [ratio, setRatio] = useState(null);
   const cargar = (e) => setRatio((e.currentTarget.naturalWidth || 800) / (e.currentTarget.naturalHeight || 1000));
-  const r = ratio || 0.75; // 3:4 por defecto mientras carga
+  const r = ratio || 0.75; // 3:4 mientras carga
   return (
-    <div style={{ width: "100%", aspectRatio: String(r), overflow: "hidden", background: CARBON, ...(borde || {}), ...extra }}>
+    <div style={{ width: "100%", aspectRatio: String(r), overflow: "hidden", background: "#15130f", ...(borde || {}) }}>
       <img src={src} alt="" onLoad={cargar} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: pos }} />
     </div>
   );
 }
 
-/** El número de drop en tipografía fantasma, de fondo. */
-const Fantasma = ({ numero, color = "rgba(242,239,230,.08)" }) => (
-  <div style={{ position: "absolute", top: 30, right: 16, zIndex: 0, ...T.m("0px"), fontSize: 152, lineHeight: 1, color, pointerEvents: "none" }}>{numero}</div>
-);
-
-/** Bloque de precio del catálogo: lista en grande y abajo, más chico,
- *  el 10% por efectivo/transferencia (igual que las tarjetas). */
-const Precio = ({ p, grande = 40, tinta = HUMO }) => {
+/** Bloque de precio del catálogo: lista en grande y, abajo, el 10% por
+ *  efectivo/transferencia (igual que las tarjetas de la tienda). */
+const Precio = ({ p, tema, grande = 40, alinear = "left" }) => {
   const transfer = p.transferPrice || Math.round((Number(p.basePrice) || 0) * 0.9);
   return (
-    <div>
-      <div style={{ ...T.m("3px"), fontSize: grande, color: tinta }}>{fmt(p.basePrice)}</div>
-      <div style={{ ...T.o("12px"), fontSize: 12.5, color: EMBER, marginTop: 6 }}>
-        EFECTIVO — 10% OFF · {fmt(transfer)}
-      </div>
+    <div style={{ textAlign: alinear }}>
+      <div style={{ ...T.m("4px"), fontSize: grande, color: tema.tinta, lineHeight: 1 }}>{fmt(p.basePrice)}</div>
+      <div style={{ ...T.o("12px"), fontSize: 12.5, color: EMBER, marginTop: 8 }}>EFECTIVO 10% OFF — {fmt(transfer)}</div>
     </div>
   );
 };
 
-/* ─────────────────────────── 1. REPORTE ───────────────────────────────
-   Informe oscuro: foto en columna + datos. La textura de marca está
-   tan atenuada que el ojo la lee como atmósfera, no como fondo. */
-const ReportePlantilla = ({ p, titulo, numero, precio }) => (
-  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: HUMO, background: `linear-gradient(rgba(10,9,8,.82),rgba(10,9,8,.82)), ${TEXTO_OSCURO}` }}>
-    <Marca />
-    <Fantasma numero={numero} />
-    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
-      <Cabecera numero={numero} dark />
-      <div style={{ display: "flex", gap: 26, alignItems: "flex-start", marginTop: 24, minHeight: 0 }}>
-        <div style={{ flex: "0 0 46%", minWidth: 0 }}>
-          <Foto src={p.photos[0]} borde={{ border: "1px solid rgba(242,239,230,.22)" }} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <span style={{ ...T.m("12px"), fontSize: 10.5, color: MUTAO }}>INFORME DE DROP</span>
-          <h2 style={{ ...T.o("6px"), fontSize: 52, margin: "10px 0 0", lineHeight: 1, color: HUMO }}>{titulo}</h2>
-          <p style={{ ...T.o("14px"), fontSize: 21, margin: "16px 0 0", color: HUMO, whiteSpace: "pre-line" }}>{p.name}</p>
-          <p style={{ ...T.m("8px"), fontSize: 10.5, color: MUTAO, margin: "8px 0 0", whiteSpace: "pre-line" }}>
-            {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "UNICA"}
-          </p>
-          <div style={{ flex: 1 }} />
-          {precio && <Precio p={p} />}
-        </div>
+/** Título del drop: una sola línea a prueba de desbordes. */
+const Titulo = ({ tema, size = 48, children }) => (
+  <h2 style={{ ...T.o("6px"), fontSize: size, margin: 0, lineHeight: 1, color: tema.tinta, whiteSpace: "nowrap" }}>{children}</h2>
+);
+
+/* ─────────────────────── 1. CENTRO ────────────────────────────────────
+   Todo al centro: título, foto y precio en un único eje vertical.
+   La más tranquila y "de marca". */
+const CentroPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 0, textAlign: "center" }}>
+      <Titulo tema={tema} size={44}>{titulo}</Titulo>
+      <div style={{ width: "54%", marginTop: 20, minWidth: 0 }}>
+        <Foto src={p.photos[0]} borde={{ border: "1px solid " + tema.foto }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: MUTAO, borderTop: "1px solid rgba(242,239,230,.18)", marginTop: 22, paddingTop: 12 }}>
-        <span>SKUL STREETWEAR</span>
-        <span>LOS TOLDOS · BUENOS AIRES</span>
-      </div>
+      <p style={{ ...T.o("14px"), fontSize: 20, margin: "18px 0 0", color: tema.tinta }}>{p.name}</p>
+      {precio && <div style={{ marginTop: 14 }}><Precio p={p} tema={tema} alinear="center" /></div>}
     </div>
   </div>
 );
 
-/* ─────────────────────────── 2. FICHA ─────────────────────────────────
-   Hoja técnica clara: cuadrícula de papel, datos en una grilla de
-   filas punteadas y la foto con marco corrido (desplazado, técnica de
-   imprenta). Es la plantilla más "de estudio de diseño". */
-const FichaPlantilla = ({ p, titulo, numero, precio }) => {
-  const transfer = p.transferPrice || Math.round((Number(p.basePrice) || 0) * 0.9);
-  const grilla = "repeating-linear-gradient(90deg, rgba(21,18,13,.09) 0 1px, transparent 1px 44px), repeating-linear-gradient(0deg, rgba(21,18,13,.07) 0 1px, transparent 1px 44px)";
-  const Fila = ({ k, v, embR = false }) => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderBottom: "1px dotted rgba(21,18,13,.4)", padding: "9px 0", ...T.m("8px"), fontSize: 11.5 }}>
-      <span style={{ color: GRIS }}>{k}</span>
-      <span style={{ color: embR ? EMBER : TINTA, textTransform: "uppercase", textAlign: "right" }}>{v}</span>
-    </div>
-  );
-  return (
-    <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: TINTA, background: `${PAPEL} , ${grilla}` }}>
-      <Marca color="rgba(21,18,13,.30)" />
-      <Fantasma numero={numero} color="rgba(21,18,13,.06)" />
-      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
-        <Cabecera numero={numero} />
-        <div style={{ display: "flex", gap: 26, alignItems: "flex-start", marginTop: 22, minHeight: 0 }}>
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-            <span style={{ ...T.m("12px"), fontSize: 10.5, color: GRIS }}>HOJA DE PIEZA</span>
-            <h2 style={{ ...T.o("12px"), fontSize: 30, margin: "8px 0 14px", lineHeight: 1.05 }}>{p.name}</h2>
-            <Fila k="CATEGORÍA" v={(p.cat || "pieza").toUpperCase()} />
-            <Fila k="TALLES" v={(p.sizes || []).join(" / ") || "ÚNICA"} />
-            <Fila k="SERIE" v={titulo} />
-            <Fila k="DROP" v={numero} />
-            {precio && <Fila k="PRECIO LISTA" v={fmt(p.basePrice)} />}
-            {precio && <Fila k="EFECTIVO 10% OFF" v={fmt(transfer)} embR />}
-            <p style={{ ...T.m("9px"), fontSize: 10, color: GRIS, margin: "14px 0 0", whiteSpace: "pre-line" }}>
-              {p.composition || "MATERIAL 100% ALGODÓN PESADO"} ·{p.sizeChart ? " TALLAJE EN LA WEB" : " TALLAJE REAL"}
-            </p>
-          </div>
-          <div style={{ flex: "0 0 56%", minWidth: 0 }}>
-            <div style={{ marginLeft: 8, width: "100%" }}>
-              <Foto src={p.photos[0]} borde={{ border: "1px solid " + TINTA }} extra={{ boxShadow: `0 0 0 4px ${PAPEL}, 0 0 0 5px ${TINTA}`, margin: 5 }} />
-            </div>
-          </div>
-        </div>
+/* ─────────────────────── 2. GRILLA ────────────────────────────────────
+   División clásica en dos columnas: foto a la izquierda, datos a la
+   derecha. La composición estándar de un catálogo. */
+const GrillaPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ display: "flex", gap: 26, marginTop: 26, minHeight: 0 }}>
+      <div style={{ flex: "0 0 50%", minWidth: 0 }}>
+        <Foto src={p.photos[0]} borde={{ border: "1px solid " + tema.foto }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <Titulo tema={tema} size={46}>{titulo}</Titulo>
+        <p style={{ ...T.o("14px"), fontSize: 22, margin: "16px 0 0", color: tema.tinta }}>{p.name}</p>
+        <p style={{ ...T.m("8px"), fontSize: 10.5, color: tema.tenue, margin: "8px 0 0" }}>
+          {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "ÚNICA"}
+        </p>
         <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: GRIS, borderTop: "1px solid rgba(21,18,13,.3)", paddingTop: 12 }}>
-          <span>SKUL STREETWEAR</span>
-          <span>NUESTRO REPORTE ES LA PRENDA</span>
-        </div>
+        {precio && <Precio p={p} tema={tema} />}
       </div>
     </div>
-  );
-};
+    <Pie tema={tema} />
+  </div>
+);
 
-/* ─────────────────────────── 3. DÚO ──────────────────────────────────
-   Dos fotos en grilla editorial claras, sin collage ni cintas: una
-   general y un "detalle" corriendo el encuadre. El titular sale por
-   debajo, superpuesto a la grilla (juego tipográfico real). */
-const DuoPlantilla = ({ p, titulo, numero, precio }) => (
-  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: TINTA, background: PAPEL }}>
-    <Marca color="rgba(21,18,13,.30)" />
-    <Fantasma numero={numero} color="rgba(21,18,13,.06)" />
-    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
-      <Cabecera numero={numero} />
-      <div style={{ display: "flex", gap: 18, alignItems: "flex-start", marginTop: 22 }}>
-        <div style={{ flex: "0 0 55%", minWidth: 0 }}>
-          <Foto src={p.photos[0]} borde={{ border: "1px solid " + TINTA }} />
-          <p style={{ ...T.m("10px"), fontSize: 10, color: GRIS, margin: "10px 0 0" }}>01 — VISTA GENERAL</p>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <Foto src={p.photos[1] || p.photos[0]} borde={{ border: "1px solid " + TINTA }} pos="center 78%" />
-          <p style={{ ...T.m("10px"), fontSize: 10, color: GRIS, margin: "10px 0 0" }}>02 — DETALLE</p>
-          <div style={{ width: 46, height: 4, background: EMBER, marginTop: 18 }} />
-        </div>
+/* ─────────────────────── 3. LATERAL ───────────────────────────────────
+   Asimetría editorial: el título arriba a la izquierda, la foto abajo
+   a la derecha. Sin rotar nada: el desnivel lo hace el espacio. */
+const LateralPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ display: "flex", gap: 26, marginTop: 24, minHeight: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <Titulo tema={tema} size={52}>{titulo}</Titulo>
+        <p style={{ ...T.o("14px"), fontSize: 22, margin: "18px 0 0", color: tema.tinta }}>{p.name}</p>
+        <p style={{ ...T.m("8px"), fontSize: 10.5, color: tema.tenue, margin: "8px 0 0" }}>
+          {(p.sizes || []).join(" / ") || "ÚNICA"}
+        </p>
+        <div style={{ flex: 1 }} />
+        {precio && <Precio p={p} tema={tema} />}
+      </div>
+      <div style={{ flex: "0 0 46%", minWidth: 0, alignSelf: "flex-end" }}>
+        <Foto src={p.photos[0]} borde={{ border: "1px solid " + tema.foto }} />
+      </div>
+    </div>
+    <Pie tema={tema} />
+  </div>
+);
+
+/* ─────────────────────── 4. MÍNIMA ────────────────────────────────────
+   Lo mínimo indispensable: cabecera, foto, precio. Casi nada más.
+   La foto sola ocupa el centro y el resto es aire. */
+const MinPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ flex: 1 }} />
+      <div style={{ width: "52%", margin: "0 auto", minWidth: 0 }}>
+        <Foto src={p.photos[0]} borde={{ border: "1px solid " + tema.foto }} />
       </div>
       <div style={{ flex: 1 }} />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20 }}>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ ...T.o("6px"), fontSize: 46, margin: 0, lineHeight: 1, whiteSpace: "nowrap" }}>{titulo}</h2>
-          <p style={{ ...T.o("14px"), fontSize: 20, margin: "12px 0 0", whiteSpace: "nowrap" }}>{p.name}</p>
-        </div>
-        {precio && <Precio p={p} grande={32} tinta={TINTA} />}
-      </div>
+      <p style={{ ...T.m("10px"), fontSize: 10.5, color: tema.tenue, textAlign: "center", margin: 0 }}>{titulo} — {p.name.toUpperCase()}</p>
+      {precio && <div style={{ marginTop: 14 }}><Precio p={p} tema={tema} alinear="center" /></div>}
     </div>
   </div>
 );
 
-/* ─────────────────────────── 4. POSTER ────────────────────────────────
-   Póster tipográfico oscuro: la tipografía manda (versión gigante del
-   título), la foto va en columna con una pestaña ember. Cerca del
-   lenguaje de los afiches de marca. */
-const PosterPlantilla = ({ p, titulo, numero, precio }) => (
-  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 28, position: "relative", overflow: "hidden", color: HUMO, background: `linear-gradient(rgba(8,7,6,.8),rgba(8,7,6,.8)), ${TEXTO_OSCURO}` }}>
-    <Marca />
-    <Fantasma numero={numero} />
-    <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
-      <Cabecera numero={numero} dark />
-      <div style={{ display: "flex", gap: 24, marginTop: 22, alignItems: "stretch", minHeight: 0 }}>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <h2 style={{ ...T.o("6px"), fontSize: 64, margin: 0, lineHeight: .96, color: HUMO, whiteSpace: "pre-line" }}>{titulo}</h2>
-          <div style={{ width: 42, height: 5, background: EMBER, marginTop: 22 }} />
-          <p style={{ ...T.o("14px"), fontSize: 21, margin: "18px 0 0", color: HUMO }}>{p.name}</p>
-          <p style={{ ...T.m("8px"), fontSize: 10.5, color: MUTAO, margin: "8px 0 0" }}>
-            {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "UNICA"}
-          </p>
-          <div style={{ flex: 1 }} />
-          {precio && <Precio p={p} />}
-          <div style={{ ...T.m("10px"), fontSize: 10, color: MUTAO, marginTop: 16 }}>BUENOS AIRES / {numero}</div>
-        </div>
-        <div style={{ flex: "0 0 44%", minWidth: 0, position: "relative" }}>
-          <Foto src={p.photos[0]} borde={{ border: "1px solid rgba(242,239,230,.25)" }} pos="center 25%" />
-          <div style={{ position: "absolute", left: -10, top: 0, bottom: 12, width: 6, background: EMBER }} />
-        </div>
+/* ─────────────────────── 5. DÚO ───────────────────────────────────────
+   Dos fotos en grilla limpia: vista general a la izquierda y un
+   encuadre distinto a la derecha (usa la 2ª foto si tiene). Sin
+   tijera: solo un cambio de encuadre. */
+const DuoPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ display: "flex", gap: 18, marginTop: 26, minHeight: 0 }}>
+      <div style={{ flex: "0 0 55%", minWidth: 0 }}>
+        <Foto src={p.photos[0]} borde={{ border: "1px solid " + tema.foto }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", ...T.m("10px"), fontSize: 10, color: MUTAO, borderTop: "1px solid rgba(242,239,230,.18)", marginTop: 22, paddingTop: 12 }}>
-        <span>SKUL STREETWEAR</span>
-        <span>SKULLT.WEB.APP</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Foto src={p.photos[1] || p.photos[0]} borde={{ border: "1px solid " + tema.foto }} pos="center 75%" />
       </div>
     </div>
+    <div style={{ flex: 1 }} />
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20 }}>
+      <div style={{ minWidth: 0 }}>
+        <Titulo tema={tema} size={44}>{titulo}</Titulo>
+        <p style={{ ...T.o("14px"), fontSize: 20, margin: "12px 0 0", color: tema.tinta }}>{p.name}</p>
+      </div>
+      {precio && <Precio p={p} tema={tema} grande={32} />}
+    </div>
+    <Pie tema={tema} />
   </div>
 );
 
-const PLANTILLA_COMP = { report: ReportePlantilla, ficha: FichaPlantilla, duo: DuoPlantilla, poster: PosterPlantilla };
+/* ─────────────────────── 6. TIPOGRAFÍA ────────────────────────────────
+   El título manda: tipografía gigante y una foto chica como
+   comprobante. La composición "póster" de la serie. */
+const TipoPlantilla = ({ p, titulo, numero, precio, tema }) => (
+  <div style={{ width: DIS, height: ALT, boxSizing: "border-box", padding: 36, background: tema.bg, color: tema.tinta, display: "flex", flexDirection: "column" }}>
+    <Cabecera numero={numero} tema={tema} />
+    <div style={{ marginTop: 40, minHeight: 0 }}>
+      <Titulo tema={tema} size={64}>{titulo}</Titulo>
+      <p style={{ ...T.o("14px"), fontSize: 22, margin: "16px 0 0", color: tema.tinta }}>{p.name}</p>
+      <p style={{ ...T.m("8px"), fontSize: 10.5, color: tema.tenue, margin: "8px 0 0" }}>
+        {(p.cat || "pieza").toUpperCase()} · {(p.sizes || []).join(" / ") || "ÚNICA"}
+      </p>
+    </div>
+    <div style={{ flex: 1 }} />
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 24 }}>
+      {precio && <Precio p={p} tema={tema} />}
+      <div style={{ flex: "0 0 30%", minWidth: 0 }}>
+        <Foto src={p.photos[1] || p.photos[0]} borde={{ border: "1px solid " + tema.foto }} pos="center 45%" />
+      </div>
+    </div>
+    <Pie tema={tema} />
+  </div>
+);
+
+const PLANTILLA_COMP = { centro: CentroPlantilla, grilla: GrillaPlantilla, lateral: LateralPlantilla, min: MinPlantilla, duo: DuoPlantilla, tipo: TipoPlantilla };
 
 export default function FlyersTab() {
   const { products } = useProducts();
   const [productId, setProductId] = useState("");
-  const [plantilla, setPlantilla] = useState("report");
+  const [plantilla, setPlantilla] = useState("grilla");
+  const [tema, setTema] = useState("oscuro");
   const [titulo, setTitulo] = useState("NUEVO DROP");
   const [numero, setNumero] = useState("001");
   const [precio, setPrecio] = useState(true);
@@ -317,6 +293,7 @@ export default function FlyersTab() {
   };
 
   const Plantilla = PLANTILLA_COMP[plantilla];
+  const temaAct = TEMAS[tema];
 
   return (
     <section>
@@ -324,10 +301,9 @@ export default function FlyersTab() {
         Flyers para Instagram Drop
       </p>
       <p style={{ fontSize: 12.5, color: "#5c5a52", margin: "-8px 0 18px", maxWidth: 700, lineHeight: 1.5 }}>
-        Se exporta en 1080×1350 (historia / portada vertical). La foto se muestra a su proporción real: la prenda
-        nunca se corta. Cuatro composiciones sin collage — reporte, ficha técnica con datos, dúo de fotos y póster
-        tipográfico. "Dúo" usa la segunda foto de la prenda si está cargada; el precio de lista es opcional y el de
-        transferencia sale debajo.
+        Se exporta en 1080×1350 (historia / portada vertical). Seis composiciones para elegir, con la prenda a su
+        proporción real (nunca se corta) y un toggle claro/oscuro para ver qué le queda mejor. "Dúo" y "Tipografía"
+        usan la segunda foto de la prenda si está cargada.
       </p>
 
       <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
@@ -343,7 +319,7 @@ export default function FlyersTab() {
           </label>
 
           <div>
-            <p className="tracked" style={{ fontWeight: 700, fontSize: 11.5, margin: "0 0 8px" }}>Plantilla</p>
+            <p className="tracked" style={{ fontWeight: 700, fontSize: 11.5, margin: "0 0 8px" }}>Composición</p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {PLANTILLAS.map((pl) => (
                 <button
@@ -351,7 +327,7 @@ export default function FlyersTab() {
                   onClick={() => setPlantilla(pl.id)}
                   className="tracked"
                   style={{
-                    flex: 1, minWidth: 84, padding: "10px 8px", fontSize: 10.5, fontWeight: 700,
+                    flex: 1, minWidth: 86, padding: "10px 8px", fontSize: 10.5, fontWeight: 700,
                     border: "1px solid var(--black)", background: plantilla === pl.id ? "var(--black)" : "transparent",
                     color: plantilla === pl.id ? "var(--white)" : "var(--black)", cursor: "pointer",
                   }}
@@ -362,9 +338,29 @@ export default function FlyersTab() {
             </div>
           </div>
 
+          <div>
+            <p className="tracked" style={{ fontWeight: 700, fontSize: 11.5, margin: "0 0 8px" }}>Tema</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              {Object.keys(TEMAS).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTema(t)}
+                  className="tracked"
+                  style={{
+                    flex: 1, padding: "10px 8px", fontSize: 10.5, fontWeight: 700,
+                    border: "1px solid var(--black)", background: tema === t ? "var(--black)" : "transparent",
+                    color: tema === t ? "var(--white)" : "var(--black)", cursor: "pointer",
+                  }}
+                >
+                  {t === "oscuro" ? "Oscuro" : "Claro"}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <label className="tracked" style={{ fontWeight: 700, fontSize: 11.5, display: "block" }}>
             Título del flyer
-            <input value={titulo} maxLength={16} onChange={(e) => setTitulo(e.target.value)} style={{ marginTop: 6 }} />
+            <input value={titulo} maxLength={12} onChange={(e) => setTitulo(e.target.value)} style={{ marginTop: 6 }} />
           </label>
           <label className="tracked" style={{ fontWeight: 700, fontSize: 11.5, display: "block" }}>
             Nº de drop
@@ -392,7 +388,7 @@ export default function FlyersTab() {
           {product ? (
             <div style={{ width: 243, height: 304, overflow: "hidden", border: "1px solid var(--black)", lineHeight: 0 }}>
               <div style={{ transform: "scale(.45)", transformOrigin: "top left", width: DIS, height: ALT }}>
-                <div ref={setNodo}>{React.createElement(Plantilla, { p: product, titulo, numero, precio })}</div>
+                <div ref={setNodo}>{React.createElement(Plantilla, { p: product, titulo, numero, precio, tema: temaAct })}</div>
               </div>
             </div>
           ) : (
