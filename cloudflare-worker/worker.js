@@ -1203,6 +1203,11 @@ async function handleCreateOrder(body, env, cors) {
     }
     // Me guardo el updateTime del documento: es la precondición que va en el
     // commit (punto 6) para detectar que el producto cambió.
+    if (leido.data?.active === false) {
+      return new Response(JSON.stringify({ error: "Uno de los productos ya no está disponible." }), {
+        status: 400, headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
     productos[id] = { ...leido.data, id, updateTime: leido.updateTime };
   }
 
