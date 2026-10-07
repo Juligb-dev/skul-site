@@ -92,6 +92,11 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
   // Solo se controla el stock si hay cantidades cargadas, para que una
   // prenda sin stock cargado siga siendo comprable.
   const tracksStock = Object.keys(stock).length > 0;
+  // Última prenda EN SERIO: se suma el stock de todos los talles. Con
+  // 1 total, la prenda se va: es el único caso que muestra urgencia.
+  const totalRestante = tracksStock
+    ? availableSizes.reduce((acc, s) => acc + (Number(stock[s]) || 0), 0)
+    : Infinity;
 
   // PREVISUALIZACIÓN de precios, nada más. El precio grande de la ficha
   // Precio de lista grande y, abajo, el 10% de descuento pagando en
@@ -271,10 +276,11 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                   // (el control real igual lo hace el Worker).
                   const qty = tracksStock ? stock[s] || 0 : Infinity;
                   const out = qty <= 0;
-                  // Con 1 a 3 unidades el talle avisa: "LA ÚLTIMA"
-                  // (pulsando) o "QUEDAN N". Es la urgencia de
-                  // streetwear: lo escaso se decide antes.
-                  const poco = tracksStock && qty > 0 && qty <= 3;
+                  // La urgencia es SOLO con la última prenda total: el
+                  // rubro tiene un solo sobrante (2 o 3 ya no asustan
+                  // a nadie). Con 1 solo talle tiene eso, y ahí el
+                  // botón lo avisa pulsando.
+                  const esUltima = qty === 1 && totalRestante === 1;
                   return (
                     <button
                       key={s}
@@ -283,11 +289,7 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
                       onClick={() => !out && setSize(s)}
                     >
                       <span className="rf-pdp-size-letra">{s}</span>
-                      {poco && (
-                        <span className={`rf-pdp-size-stock ${qty === 1 ? "is-last" : ""}`}>
-                          {qty === 1 ? "ÚLTIMA" : `QUEDAN ${qty}`}
-                        </span>
-                      )}
+                      {esUltima && <span className="rf-pdp-size-stock is-last">ÚLTIMA</span>}
                     </button>
                   );
                 })}
@@ -309,12 +311,10 @@ export default function ProductPage({ product, addToCart, nav, related = [], ope
               {soldOut ? "SIN STOCK" : size ? `AGREGAR AL CARRITO — TALLE ${size}` : "SELECCIONÁ UN TALLE"}
             </button>
 
-            {/* Urgencia: solo con 1 a 3 unidades del talle elegido. Con
-                1 sola la animación de pulso hace que se decida. */}
-            {size && tracksStock && stock[size] > 0 && stock[size] <= 3 && (
-              <p className={`rf-pdp-hint rf-pdp-hint-alert ${stock[size] === 1 ? "is-last" : ""}`}>
-                {stock[size] === 1 ? "SE VA: QUEDÓ LA ÚLTIMA DE ESTE TALLE" : `¡Quedan ${stock[size]}!`}
-              </p>
+            {/* Urgencia: solo si quedó una sola prenda del producto (la suma de
+                todos los talles). Con más, no se molesta al que mira. */}
+            {size && tracksStock && totalRestante === 1 && (
+              <p className="rf-pdp-hint rf-pdp-hint-alert is-last">SE VA: LA ÚLTIMA</p>
             )}
 
             {/* Consulta por WhatsApp: mensaje precargado con la prenda
