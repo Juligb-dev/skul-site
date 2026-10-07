@@ -1785,7 +1785,10 @@ async function handleGeoCP(body, cors) {
   }
 
   const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(clave)}&countrycodes=ar&format=jsonv2&limit=1`,
+    // addressdetails=1 es indispensable: sin eso, en las búsquedas por
+    // CP Nominatim devuelve `address: null` y no hay ni provincia ni
+    // localidad para ordenar/agrupar.
+    `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(clave)}&countrycodes=ar&format=jsonv2&limit=1&addressdetails=1`,
     {
       headers: {
         // Nominatim pide identificarse en el User-Agent (su política de
