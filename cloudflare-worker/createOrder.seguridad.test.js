@@ -388,6 +388,25 @@ describe("createOrder — envío por Correo Argentino", () => {
     expect(json.total).toBe(25000 + 2500);
   });
 
+  it("no cobra el envío cuando la mercadería llega a $100.000", async () => {
+    // 4 hoodies = $100.000 de mercadería: justo en el umbral, el flete de
+    // Correo (que la API simulada cotiza en $2.500) sale gratis.
+    const { json } = await pedir(worker, {
+      ...pedidoCorreo({ type: "domicilio", postalCode: "1425", provinceCode: "C" }),
+      items: [{ id: "prod-1", size: "M", qty: 4 }],
+    });
+    expect(json.total).toBe(100000);
+  });
+
+  it("sí cobra el envío cuando la mercadería no llega al umbral", async () => {
+    // 3 hoodies = $75.000: por debajo de los $100.000, se cobra el flete.
+    const { json } = await pedir(worker, {
+      ...pedidoCorreo({ type: "domicilio", postalCode: "1425", provinceCode: "C" }),
+      items: [{ id: "prod-1", size: "M", qty: 3 }],
+    });
+    expect(json.total).toBe(75000 + 2500);
+  });
+
   it("si Correo no puede cotizar, avisa y NO guarda el pedido", async () => {
     // Un 503 con el pedido a medio hacer sería lo peor: el cliente
     // cree que compró y no hay nada.

@@ -156,6 +156,37 @@ describe("createOrder — el navegador habla con el Worker, no con Firestore", (
     expect(res.total).toBe(21000);
   });
 
+  it("pasa el link de pago de Mercado Pago (paymentUrl) tal cual lo devuelve el Worker", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          orderId: "x",
+          total: 21000,
+          paymentUrl: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=abc",
+        }),
+      }))
+    );
+
+    const res = await createOrder({ items: [] });
+    expect(res.paymentUrl).toBe("https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=abc");
+  });
+
+  it("paymentUrl queda null si el Worker no lo manda (pago no-tarjeta o MP apagado)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ ok: true, orderId: "x", total: 21000 }),
+      }))
+    );
+
+    const res = await createOrder({ items: [] });
+    expect(res.paymentUrl).toBeNull();
+  });
+
   it("el Worker que dice ok:false se traduce en Error con SU mensaje", async () => {
     vi.stubGlobal(
       "fetch",

@@ -162,6 +162,39 @@ describe("StoreApp", () => {
     expect(createOrderMock.mock.calls[0][0].payMethod).toBe("debito");
   });
 
+  it("con tarjeta y link de pago del Worker, redirige a Mercado Pago (no a la pantalla de gracias)", async () => {
+    await agregarHoodie();
+    fireEvent.click(screen.getByText("Ir a pagar"));
+    await screen.findByText("Resumen");
+
+    fireEvent.change(screen.getByPlaceholderText("Nombre completo"), { target: { value: "Juana Pereyra" } });
+    fireEvent.change(screen.getByPlaceholderText("Para coordinar el envío"), { target: { value: "1555555555" } });
+    fireEvent.click(screen.getByText(/Débito/));
+
+    createOrderMock.mockResolvedValue({
+      orderId: "SKULTEST-MP",
+      total: 250,
+      paymentUrl: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=test",
+    });
+
+    // jsdom no implementa la navegación real, así que la interceptamos.
+    const assign = vi.fn();
+    const original = window.location;
+    delete window.location;
+    window.location = { ...original, assign };
+
+    try {
+      fireEvent.click(screen.getByText("Confirmar pedido"));
+      await waitFor(() =>
+        expect(assign).toHaveBeenCalledWith("https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=test")
+      );
+      // No cayó en la pantalla de "gracias" de tarjeta.
+      expect(screen.queryByText("Pedido registrado")).not.toBeInTheDocument();
+    } finally {
+      window.location = original;
+    }
+  });
+
   it("si el Worker rechaza (se agotó el stock), muestra el motivo y NO pierde el carrito", async () => {
     await agregarHoodie();
     fireEvent.click(screen.getByText("Ir a pagar"));

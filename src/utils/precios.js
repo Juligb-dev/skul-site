@@ -30,6 +30,7 @@
  *  (`descuentos.seguridad.test.js`) pinan los dos lados del mismo contrato.
  * ============================================================
  */
+import { ENVIO_GRATIS_DESDE } from "../data/config.js";
 
 /**
  * Calcula el resumen de un carrito.
@@ -94,4 +95,18 @@ export function calcularResumenPrecios({
   const total = Math.max(0, subtotal - discount - couponDiscount - giftCardDiscount) + shippingCost;
 
   return { discount, couponDiscount, giftCardDiscount, total };
+}
+
+/**
+ * El envío que corresponde cobrar. Si la MERCADERÍA (el subtotal de las
+ * prendas, sin contar envío ni descuentos) llega al umbral, el flete no se
+ * cobra; el retiro en el local ya vale 0 de por sí. Esto es solo lo que se
+ * muestra en el resumen: el Worker aplica la misma regla, con la misma
+ * constante (ENVIO_GRATIS_DESDE), antes de cobrar de verdad.
+ *
+ * @param {number} base   el envío calculado (cotización de Correo o zona fija)
+ * @param {number} subtotal  el precio de lista de las prendas del carrito
+ */
+export function calcularEnvio(base, subtotal) {
+  return subtotal >= ENVIO_GRATIS_DESDE ? 0 : base;
 }

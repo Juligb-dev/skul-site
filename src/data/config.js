@@ -68,6 +68,12 @@ export const ZONES = [
 // Las demás zonas ahora se cotizan en vivo con la API de Correo
 // Argentino (ver /utils/correo.js), en vez de precios fijos acá.
 
+// Envío gratis a partir de este monto de MERCADERÍA (el subtotal de las
+// prendas, sin contar envío ni descuentos). El sitio lo usa para mostrar el
+// resumen; el que de verdad decide el cobro es el Worker
+// (cloudflare-worker/worker.js → ENVIO_GRATIS_DESDE), con el mismo valor.
+export const ENVIO_GRATIS_DESDE = 100000;
+
 /* ============================================================
    ENVÍOS POR CORREO ARGENTINO (API MiCorreo)
    ------------------------------------------------------------

@@ -40,4 +40,6 @@
   //   FIREBASE_PRIVATE_KEY            -> cuenta de servicio
   //   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
   //   CLOUDINARY_API_SECRET           -> firma de subidas de imagen
+  //   MP_ACCESS_TOKEN                 -> cobro con tarjeta (Checkout Pro)
+  //   MP_WEBHOOK_SECRET               -> firma del webhook de MP (/mp/webhook)
 }

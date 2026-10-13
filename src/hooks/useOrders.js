@@ -301,6 +301,10 @@ export async function createOrder(order) {
   //   - giftCardIssued: el código de la gift card COMPRADA en este pedido, o
   //     null. Si viene, el cliente lo ve y lo anota: por eso no es un dato
   //     personal y por eso puede ir también en el tracking público.
+  //   - paymentUrl: el link de pago de Mercado Pago (init_point) cuando el
+  //     pago es con tarjeta y el Worker creó la preferencia. El checkout
+  //     redirige ahí. Si no viene (pago no-tarjeta, o MP no configurado),
+  //     queda null y el sitio sigue con la pantalla de gracias de siempre.
   //
   // OJO: no hay clave de idempotencia (un identificador que diga "este pedido
   // es el mismo que ya me pediste", para que un reintento no lo duplique). El
@@ -313,5 +317,6 @@ export async function createOrder(order) {
     total: data.total,
     giftCardDiscount: Number(data.giftCardDiscount) || 0,
     giftCardIssued: data.giftCardIssued || null,
+    paymentUrl: data.paymentUrl || null,
   };
 }

@@ -95,6 +95,7 @@ export const instalarFetchFalso = (fs, opciones = {}) => {
     correoAgencies = [],
     correoFalla = false,
     geoCp = [{ lat: "-34.6476", lon: "-58.558", address: { state: "Buenos Aires", city: "Ramos Mejía" } }],
+    mpPagos = {},
   } = opciones;
 
   const llamadas = [];
@@ -218,6 +219,29 @@ export const instalarFetchFalso = (fs, opciones = {}) => {
     // --- Nominatim: geocodificación de CP (acción geocp del Worker) ---
     if (u.includes("nominatim.openstreetmap.org")) {
       return new Response(JSON.stringify(geoCp), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Mercado Pago: crear preferencia (Checkout Pro)
+    if (u.includes("api.mercadopago.com") && u.includes("/checkout/preferences") && metodo === "POST") {
+      return new Response(
+        JSON.stringify({
+          id: "test_pref",
+          init_point: "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=test_pref",
+          sandbox_init_point: "https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=test_pref",
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Mercado Pago: leer un pago (lo usa el webhook). `mpPagos` mapea id → pago.
+    if (u.includes("api.mercadopago.com") && u.includes("/v1/payments/") && metodo === "GET") {
+      const id = u.split("/v1/payments/")[1].split("?")[0];
+      const pago = mpPagos[id];
+      if (!pago) return new Response("NOT FOUND", { status: 404 });
+      return new Response(JSON.stringify(pago), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });

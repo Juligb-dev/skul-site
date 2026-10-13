@@ -51,9 +51,9 @@ estos casos el usuario vuelve al sitio con parámetros. Como ya existe la lógic
 en `useEffect` inicial (líneas ~258–278 de StoreApp) que lee `?pedido=ID` y
 trae `orderTracking`, `GraciasTarjeta` puede mostrar el estado.
 
-Opcional: agregar webhook `POST /webhook/mp` en el Worker (nueva acción, validar
-firma, marcar `paymentStatus`, actualizar tracking). No es bloqueante para
-redirigir: con el retorno ya alcanza para mostrar "pedido registrado".
+Implementado: el webhook es `POST/GET /mp/webhook` en el Worker (`handleMercadoPagoWebhook`),
+valida firma (`MP_WEBHOOK_SECRET`), marca `paymentStatus` en el pedido y en el tracking.
+Ver `docs/MERCADO_PAGO.md`.
 
 ## Recomendación concreta
 Empiezo por el **mínimo que no rompe nada**:

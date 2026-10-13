@@ -299,6 +299,35 @@ wrangler secret put CLOUDINARY_API_SECRET
 wrangler secret put CLOUDINARY_API_KEY
 ```
 
+## Cobro con tarjeta (Mercado Pago)
+
+El checkout con tarjeta usa **Checkout Pro**. Queda apagado hasta que exista
+`MP_ACCESS_TOKEN`.
+
+Secretos a cargar:
+
+```bash
+wrangler secret put MP_ACCESS_TOKEN     # Access Token de producción
+wrangler secret put MP_WEBHOOK_SECRET   # clave secreta del webhook (panel de MP)
+```
+
+Flujo:
+
+1. `createOrder`, si el pago es `debito`/`credito` y hay `MP_ACCESS_TOKEN`, crea
+   una preferencia con el `total` que calculó el Worker y devuelve `paymentUrl`
+   (`init_point`). El sitio redirige ahí.
+2. MP avisa el estado del pago a `POST /mp/webhook` (también acepta GET con la
+   query, el IPN viejo). El handler valida la firma `x-signature` (HMAC-SHA256
+   con `MP_WEBHOOK_SECRET`), lee el pago real (`GET /v1/payments/{id}`), lo
+   compara con el `total` del pedido y anota `paymentStatus` en `/orders` y
+   `/orderTracking`. Es idempotente.
+3. Si el pago cubre el total queda `paid`; si pagó menos, `underpaid` (para
+   revisar a mano). El monto del aviso nunca se usa: manda la API de MP.
+
+Opcional: `MP_NOTIFICATION_URL` (variable, no secreta) fuerza la URL del webhook
+si el Worker está detrás de un dominio propio. Si no se setea, se arma con el
+origen de la petición → `https://<host>/mp/webhook`.
+
 ## Seguridad del Worker
 
 - **CORS**: solo responde con `Access-Control-Allow-Origin` si el `Origin`

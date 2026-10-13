@@ -85,7 +85,7 @@ import { checkGiftCard, giftCardCarritoItem } from "./hooks/useGiftCards.js";
 // El redondeo del monto de una gift card (lo usa la página de gift cards
 // y el carrito, para que el número quede en pesos enteros dentro del rango).
 import { redondearMontoGiftCard } from "./utils/giftcards.js";
-import { calcularResumenPrecios } from "./utils/precios.js";
+import { calcularResumenPrecios, calcularEnvio } from "./utils/precios.js";
 import { createOrder } from "./hooks/useOrders.js";
 // La tabla de rutas: el mapa entre el estado de página y la URL real
 // (pageToPath, parsePath y pageTitle).
@@ -460,10 +460,14 @@ export default function StoreApp() {
   // (correoQuote.price, a domicilio o a sucursal); si es una zona fija,
   // sale de la tabla ZONES de data/config.js. Nunca se arma un número
   // acá a ojo: si todavía no se cotizó, es 0.
-  const shippingCost = useMemo(
-    () => (zone === "correo" ? correoQuote?.price ?? 0 : ZONES.find((z) => z.id === zone)?.price ?? 0),
-    [zone, correoQuote]
-  );
+  //
+  // Envío gratis: si la mercadería llega al umbral, no se cobra el flete
+  // (el retiro en el local ya es 0). Es solo la previsualización; el Worker
+  // aplica la misma regla con la misma constante antes de cobrar.
+  const shippingCost = useMemo(() => {
+    const base = zone === "correo" ? correoQuote?.price ?? 0 : ZONES.find((z) => z.id === zone)?.price ?? 0;
+    return calcularEnvio(base, subtotal);
+  }, [zone, correoQuote, subtotal]);
 
   /* ---- DESCUENTOS, EN ORDEN ----
      El orden importa y es el mismo que usa el Worker:
@@ -794,8 +798,9 @@ export default function StoreApp() {
 
     let newOrderId;
     let totalConfirmado;
+    let creado;
     try {
-      const creado = await createOrder(orderData);
+      creado = await createOrder(orderData);
       newOrderId = creado.orderId;
       // El total lo recalcula el servidor: si por lo que sea difiere de
       // lo que mostraba el resumen, se muestra el real (es el que hay
@@ -830,6 +835,16 @@ export default function StoreApp() {
     // Cada medio de pago termina en una pantalla distinta: la
     // transferencia muestra la caja para transferir, el efectivo pide
     // coordinar una cita en el local y la tarjeta el agradecimiento.
+    // Si es tarjeta y el Worker devuelve un link de pago, redirigimos a MP.
+    const esTarjeta = payMethod === "debito" || payMethod === "credito";
+    if (esTarjeta) {
+      const paymentUrl = creado?.paymentUrl;
+      if (paymentUrl) {
+        window.location.assign(paymentUrl);
+        setConfirming(false);
+        return;
+      }
+    }
     if (payMethod === "transferencia") nav("gracias-transferencia");
     else if (payMethod === "efectivo") nav("cita-previa");
     else nav("gracias-tarjeta");

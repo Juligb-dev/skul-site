@@ -347,6 +347,16 @@ export default {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: cors });
     }
+
+    // El webhook de Mercado Pago entra por una URL propia (/mp/webhook) y NO
+    // usa el formato {action} del sitio. Por eso se atiende acá, antes de
+    // parsear el body con `action` y antes del "solo POST": MP puede avisar
+    // tanto por POST (webhooks) como por GET con la query (IPN viejo).
+    const url = new URL(request.url);
+    if (url.pathname.replace(/\/+$/, "").endsWith("/mp/webhook")) {
+      return await handleMercadoPagoWebhook(request, env);
+    }
+
     if (request.method !== "POST") {
       return new Response("Método no permitido", { status: 405, headers: cors });
     }
@@ -372,7 +382,7 @@ export default {
 
     try {
       if (action === "notify") return await handleNotify(body, env, cors);
-      if (action === "createOrder") return await handleCreateOrder(body, env, cors);
+      if (action === "createOrder") return await handleCreateOrder(body, env, cors, request);
       if (action === "subscribe") return await handleSubscribe(body, env, cors);
       if (action === "signUpload") return await handleSignUpload(body, env, cors, request);
       if (action === "rates") return await handleRates(body, env, cors);
@@ -973,6 +983,10 @@ const RE_GIFT_CARD = /^SKUL-[A-Z0-9]{6}$/;
 const ITEM_GIFT_CARD = "giftcard";
 const NOMBRE_ITEM_GIFT_CARD = "Gift Card SKUL";
 const EFECTIVO_DESCUENTO = 0.1;
+// Envío gratis a partir de este monto de MERCADERÍA (el subtotal de las
+// prendas, sin contar envío ni descuentos). Es el mismo valor que muestra el
+// sitio (src/data/config.js → ENVIO_GRATIS_DESDE): si cambia allá, cambialo acá.
+const ENVIO_GRATIS_DESDE = 100000;
 
 /** Precio que corresponde a una prenda (outlet si está en outlet). */
 // NUNCA se usa el precio que manda el navegador: el de acá sale del documento
@@ -1126,7 +1140,7 @@ function correoQuoteLabel(q) {
  * o el descuento cambió mientras comprabas (probá de nuevo), 503 = MiCorreo
  * no responde.
  */
-async function handleCreateOrder(body, env, cors) {
+async function handleCreateOrder(body, env, cors, request) {
   const { orderName, orderPhone, orderAddress, items, zoneId, correoQuote, payMethod, couponCode, giftCardCode } = body;
 
   // ---- 1) Validación de forma (lo que llega del navegador) ----
@@ -1422,6 +1436,11 @@ async function handleCreateOrder(body, env, cors) {
     };
   }
 
+  // Envío gratis por monto de compra: si la mercadería llega al umbral, el
+  // flete no se cobra (aplica al envío de Correo; el retiro en el local ya es
+  // 0). Se decide acá, en el servidor, que es quien termina cobrando.
+  if (envio > 0 && subtotal >= ENVIO_GRATIS_DESDE) envio = 0;
+
   // ---- 5) Descuentos y total ----
   // El 10% es el único descuento fijo (pago en efectivo y NO por Correo,
   // que en el checkout va deshabilitado).
@@ -1582,6 +1601,35 @@ async function handleCreateOrder(body, env, cors) {
     console.error("[createOrder] No se pudo avisar a Telegram:", err?.message || err);
   }
 
+  // ---- 8) Crear preferencia de Mercado Pago (solo si corresponde) ----
+  let paymentUrl = null;
+  const esTarjeta = payMethod === "debito" || payMethod === "credito";
+  // Si el total quedó en 0 (por ejemplo una gift card cubrió todo), no hay
+  // nada que cobrarle a MP: se sigue el pedido como siempre, sin preferencia.
+  if (esTarjeta && env.MP_ACCESS_TOKEN && total > 0) {
+    try {
+      // A dónde avisa MP cuando cambia el estado del pago. Se puede forzar
+      // con MP_NOTIFICATION_URL (útil si el Worker está detrás de un dominio
+      // propio); si no, se arma con el origen de esta misma petición.
+      const notificationUrl =
+        env.MP_NOTIFICATION_URL ||
+        (request ? `${new URL(request.url).origin}/mp/webhook` : null);
+
+      const pref = await crearPreferenciaMercadoPago(env, {
+        orderId,
+        total,
+        items: itemsNormalizados,
+        shippingCost: envio,
+        orderName: pedido.orderName,
+        orderPhone: pedido.orderPhone,
+        notificationUrl,
+      });
+      paymentUrl = pref.init_point || pref.sandbox_init_point || null;
+    } catch (err) {
+      console.error("[createOrder] No se pudo crear preferencia de Mercado Pago:", err?.message || err);
+    }
+  }
+
   return new Response(
     JSON.stringify({
       ok: true,
@@ -1589,6 +1637,7 @@ async function handleCreateOrder(body, env, cors) {
       total,
       giftCardDiscount: giftCardDescuento,
       giftCardIssued: giftCardEmitida,
+      ...(paymentUrl ? { paymentUrl } : {}),
     }),
     { status: 200, headers: { ...cors, "Content-Type": "application/json" } }
   );
@@ -1817,6 +1866,331 @@ async function handleGeoCP(body, cors) {
   return new Response(JSON.stringify(out), {
     status: 200, headers: { ...cors, "Content-Type": "application/json" },
   });
+}
+
+/**
+ * Arma los ítems de la preferencia de MP para que su suma sea EXACTAMENTE el
+ * total que calculó el Worker (el que incluye envío, cupón y gift card).
+ *
+ * Por qué: MP cobra la suma de los `items`, no un "total" aparte. Si mandamos
+ * solo las prendas, MP cobra de menos (falta el envío) o de más (sobran los
+ * descuentos). Así que mandamos las prendas + el envío y, si hay descuentos,
+ * repartimos esa diferencia entre las líneas más caras. Nunca mandamos
+ * unit_price negativo ni en 0: MP no los acepta. Si por lo que fuera no se
+ * puede repartir (total muy chico con muchas líneas), mandamos una sola línea
+ * con el total.
+ */
+function itemsDePreferencia(items, shippingCost, total) {
+  const lineas = (items || []).map((i) => {
+    const cant = Math.max(1, Number(i.qty) || 1);
+    const precio = Math.round(Number(i.price) || 0);
+    const talle = i.size ? ` / Talle ${i.size}` : "";
+    // Una sola unidad por línea con el total de la línea adentro: así el
+    // reparto del descuento es exacto (en pesos enteros) y no hay que lidiar
+    // con unit_price fraccionario por la cantidad.
+    return {
+      title: `${i.name || "Producto SKUL"}${talle}${cant > 1 ? ` x${cant}` : ""}`.slice(0, 250),
+      quantity: 1,
+      unit_price: precio * cant,
+      currency_id: "ARS",
+    };
+  });
+
+  if (Number(shippingCost) > 0) {
+    lineas.push({
+      title: "Envío",
+      quantity: 1,
+      unit_price: Math.round(Number(shippingCost)),
+      currency_id: "ARS",
+    });
+  }
+
+  const objetivo = Math.round(Number(total) || 0);
+  const suma = lineas.reduce((a, l) => a + l.unit_price, 0);
+  // Cuánto hay que descontar de las líneas para caer justo en el total.
+  let resta = suma - objetivo;
+
+  if (lineas.length && resta > 0) {
+    const porPrecio = [...lineas].sort((a, b) => b.unit_price - a.unit_price);
+    for (const l of porPrecio) {
+      if (resta <= 0) break;
+      // Dejamos cada línea en al menos $1 para no mandar un precio inválido.
+      const disponible = Math.max(0, l.unit_price - 1);
+      const baja = Math.min(disponible, resta);
+      l.unit_price -= baja;
+      resta -= baja;
+    }
+  }
+
+  // Si no se pudo repartir del todo, o no quedó ninguna línea, va una sola
+  // línea con el total. Es fea pero es imposible que cobre un monto distinto.
+  if (!lineas.length || resta > 0 || objetivo <= 0) {
+    return objetivo > 0
+      ? [{ title: "Pedido SKUL", quantity: 1, unit_price: objetivo, currency_id: "ARS" }]
+      : [];
+  }
+  return lineas;
+}
+
+/**
+ * Crea una preferencia de Mercado Pago y devuelve sus datos (incluye init_point).
+ * Solo se llama cuando hay MP_ACCESS_TOKEN, el pago es con tarjeta y el total
+ * es mayor a 0.
+ */
+async function crearPreferenciaMercadoPago(env, { orderId, total, items, shippingCost = 0, orderName, orderPhone, notificationUrl }) {
+  const baseUrl = env.MP_BASE_URL || "https://api.mercadopago.com";
+  const backUrls = {
+    success: "https://skullt.web.app/gracias?pedido=" + encodeURIComponent(orderId),
+    failure: "https://skullt.web.app/gracias?pedido=" + encodeURIComponent(orderId),
+    pending: "https://skullt.web.app/gracias?pedido=" + encodeURIComponent(orderId),
+  };
+
+  const preferenceItems = itemsDePreferencia(items, shippingCost, total);
+
+  const body = {
+    items: preferenceItems,
+    external_reference: orderId,
+    back_urls: backUrls,
+    auto_return: "approved",
+    payer: {
+      name: orderName ? String(orderName).slice(0, 120) : undefined,
+      phone: orderPhone ? { number: orderPhone } : undefined,
+    },
+  };
+
+  // A dónde avisa MP el resultado del pago (nuestro webhook). Sin esto, el
+  // pedido nunca se marcaría como pagado solo: habría que mirar a mano.
+  if (notificationUrl) body.notification_url = notificationUrl;
+
+  const res = await fetch(`${baseUrl}/checkout/preferences`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.MP_ACCESS_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(`Mercado Pago respondió ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+
+  return data;
+}
+
+/* ============================================================
+   WEBHOOK DE MERCADO PAGO — "este pedido se pagó"
+   ------------------------------------------------------------
+   MP avisa acá cuando cambia el estado de un pago. El aviso NO es de
+   confiar por sí solo: cualquiera que conozca la URL podría mandar un
+   POST diciendo que un pedido se pagó. Por eso el orden es:
+
+     1. validar la firma (HMAC) del aviso — si hay MP_WEBHOOK_SECRET,
+     2. leer el pago REAL desde la API de MP con nuestro token,
+     3. comparar el monto del pago con el total del pedido,
+     4. recién ahí marcar el pedido.
+
+   El monto del aviso nunca se usa: el que manda es el que devuelve la API
+   de MP y el total que ya está guardado en el pedido (lo calculó el Worker).
+   ============================================================ */
+async function handleMercadoPagoWebhook(request, env) {
+  const url = new URL(request.url);
+
+  // El id del pago viene en el body (webhooks nuevos) o en la query (IPN viejo).
+  let body = {};
+  if (request.method === "POST") {
+    body = await request.json().catch(() => ({}));
+  }
+  const tipo = body.type || url.searchParams.get("type") || url.searchParams.get("topic") || "";
+  const idPago = body.data?.id || url.searchParams.get("data.id") || url.searchParams.get("id") || "";
+
+  // Sin token no podemos leer el pago, así que no hay nada que reconciliar.
+  if (!env.MP_ACCESS_TOKEN) {
+    console.warn("[mp/webhook] Sin MP_ACCESS_TOKEN: no se puede verificar el pago.");
+    return new Response("sin token", { status: 200 });
+  }
+
+  // Solo nos interesan los pagos. Otros avisos (merchant_order, etc.) se
+  // ignoran con 200 para que MP no los reintente.
+  if (tipo && tipo !== "payment") {
+    return new Response("ignorado", { status: 200 });
+  }
+  if (!idPago) {
+    return new Response("sin id", { status: 200 });
+  }
+
+  // Firma: si hay secreto configurado, se EXIGE. Si no, se procesa pero se
+  // avisa fuerte en el log: sin secreto, cualquiera podría intentar forzar
+  // un "pagado" (la validación de monto de más abajo lo limita, pero igual).
+  if (env.MP_WEBHOOK_SECRET) {
+    const firmaOk = await firmaWebhookValida(env.MP_WEBHOOK_SECRET, request, idPago);
+    if (!firmaOk) {
+      console.warn("[mp/webhook] Firma inválida: se descarta el aviso.");
+      return new Response("firma inválida", { status: 401 });
+    }
+  } else {
+    console.warn(
+      "[mp/webhook] MP_WEBHOOK_SECRET no configurado: se procesa SIN validar la firma. " +
+        "Cargalo con `wrangler secret put MP_WEBHOOK_SECRET`."
+    );
+  }
+
+  // ---- 2) Leer el pago real desde MP ----
+  let pago;
+  try {
+    const baseUrl = env.MP_BASE_URL || "https://api.mercadopago.com";
+    const res = await fetch(`${baseUrl}/v1/payments/${encodeURIComponent(idPago)}`, {
+      headers: { Authorization: `Bearer ${env.MP_ACCESS_TOKEN}` },
+    });
+    if (!res.ok) {
+      console.error(`[mp/webhook] MP devolvió ${res.status} al leer el pago ${idPago}.`);
+      // 502 para que MP reintente: puede ser un error momentáneo.
+      return new Response("no se pudo leer el pago", { status: 502 });
+    }
+    pago = await res.json();
+  } catch (err) {
+    console.error("[mp/webhook] Error leyendo el pago:", err?.message || err);
+    return new Response("error", { status: 502 });
+  }
+
+  // external_reference es el orderId que mandamos al crear la preferencia.
+  const orderId = pago.external_reference;
+  if (!idSeguro(orderId)) {
+    // Pago sin pedido asociado (o con una referencia rara): se ignora.
+    return new Response("sin pedido", { status: 200 });
+  }
+
+  const ruta = `orders/${encodeURIComponent(orderId)}`;
+  const original = await fsGetDoc(env, ruta);
+  if (!original) {
+    return new Response("pedido no encontrado", { status: 200 });
+  }
+
+  const estado = estadoSegunPago(pago, original.total);
+  const mpPaymentId = String(pago.id);
+
+  // Idempotencia: MP reintenta el mismo aviso. Si ya está anotado ese pago
+  // con el mismo estado, no volvemos a escribir ni a avisar por Telegram.
+  if (original.mpPaymentId === mpPaymentId && original.paymentStatus === estado) {
+    return new Response("ok", { status: 200 });
+  }
+
+  const writes = [
+    {
+      update: {
+        name: `${FS_PATH}/${ruta}`,
+        fields: fsFields({
+          paymentStatus: estado,
+          mpPaymentId,
+          paidAmount: Number(pago.transaction_amount) || 0,
+          paymentStatusUpdatedAt: fsTimestamp(),
+        }),
+      },
+      updateMask: {
+        fieldPaths: ["paymentStatus", "mpPaymentId", "paidAmount", "paymentStatusUpdatedAt"],
+      },
+    },
+  ];
+
+  // La copia pública también refleja el pago, así el comprador ve "pagado"
+  // al volver de Mercado Pago.
+  if (estado === "paid") {
+    writes.push({
+      update: {
+        name: `${FS_PATH}/orderTracking/${encodeURIComponent(orderId)}`,
+        fields: fsFields({ paymentStatus: "paid" }),
+      },
+      updateMask: { fieldPaths: ["paymentStatus"] },
+    });
+  }
+
+  try {
+    await fsCommit(env, writes);
+  } catch (err) {
+    console.error("[mp/webhook] No se pudo anotar el pago en Firestore:", err?.message || err);
+    return new Response("no se pudo anotar", { status: 500 });
+  }
+
+  // Aviso al canal: recién acá hay plata acreditada de verdad.
+  if (estado === "paid" && original.paymentStatus !== "paid") {
+    try {
+      await sendTelegram(
+        env,
+        `💳 PAGO ACREDITADO\nPedido: ${orderId}\nMonto: ${fmt(pago.transaction_amount)}\nTotal del pedido: ${fmt(original.total)}`
+      );
+    } catch (err) {
+      console.error("[mp/webhook] No se pudo avisar el pago a Telegram:", err?.message || err);
+    }
+  }
+
+  return new Response("ok", { status: 200 });
+}
+
+/**
+ * Traduce el estado de un pago de MP a nuestro `paymentStatus`.
+ *
+ * "approved" solo cuenta como pagado si el monto cubre el total del pedido:
+ * si pagó menos (por un cambio de precio, un error, lo que sea), queda
+ * "underpaid" para revisión manual en vez de darse por cobrado.
+ */
+function estadoSegunPago(pago, totalPedido) {
+  const status = String(pago?.status || "").toLowerCase();
+  if (status === "approved") {
+    const monto = Number(pago.transaction_amount) || 0;
+    return monto + 0.01 >= Number(totalPedido) ? "paid" : "underpaid";
+  }
+  if (status === "pending" || status === "in_process" || status === "authorized") return "pending";
+  if (status === "refunded" || status === "charged_back") return "refunded";
+  if (status === "rejected" || status === "cancelled") return "rejected";
+  return "pending";
+}
+
+/**
+ * Valida la firma del webhook de MP.
+ *
+ * MP manda la cabecera `x-signature: ts=<ts>,v1=<hmac>` y un `x-request-id`.
+ * Lo que se firma (HMAC-SHA256, en hex) es el "manifiesto":
+ *     id:<data.id>;request-id:<x-request-id>;ts:<ts>;
+ * con la clave secreta del webhook como clave del HMAC.
+ */
+async function firmaWebhookValida(secreto, request, idPago) {
+  const header = request.headers.get("x-signature") || "";
+  const requestId = request.headers.get("x-request-id") || "";
+
+  // `ts=...,v1=...` -> { ts, v1 }. Los valores hex no traen "=", así que el
+  // split simple alcanza (a diferencia de un base64).
+  const partes = {};
+  for (const trozo of header.split(",")) {
+    const [clave, valor] = trozo.split("=").map((s) => s.trim());
+    if (clave) partes[clave] = valor;
+  }
+  if (!partes.ts || !partes.v1) return false;
+
+  const manifiesto = `id:${idPago};request-id:${requestId};ts:${partes.ts};`;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secreto),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const firma = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(manifiesto));
+  const hex = [...new Uint8Array(firma)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  return comparacionConstante(hex, String(partes.v1).toLowerCase());
+}
+
+/** Compara dos strings en tiempo constante (evita filtrar por timing). */
+function comparacionConstante(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 /**

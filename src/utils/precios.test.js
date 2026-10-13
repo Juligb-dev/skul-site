@@ -21,7 +21,8 @@
  * ============================================================
  */
 import { describe, it, expect } from "vitest";
-import { calcularResumenPrecios } from "./precios.js";
+import { calcularResumenPrecios, calcularEnvio } from "./precios.js";
+import { ENVIO_GRATIS_DESDE } from "../data/config.js";
 
 /** Corto para armar carritos de un solo producto. */
 const cupon = (overrides = {}) => ({ type: "percent", value: 20, scope: "all", ...overrides });
@@ -194,5 +195,23 @@ describe("calcularResumenPrecios — el combo completo, según paga o no en efec
       appliedGiftCard: gift(10000),
     });
     expect(r).toEqual({ discount: 2500, couponDiscount: 4500, giftCardDiscount: 10000, total: 8000 });
+  });
+});
+
+describe("calcularEnvio — envío gratis por monto de compra", () => {
+  it("por debajo del umbral, se cobra el envío tal cual", () => {
+    expect(calcularEnvio(2500, ENVIO_GRATIS_DESDE - 1)).toBe(2500);
+  });
+
+  it("justo en el umbral, el envío sale gratis", () => {
+    expect(calcularEnvio(2500, ENVIO_GRATIS_DESDE)).toBe(0);
+  });
+
+  it("por encima del umbral, también gratis", () => {
+    expect(calcularEnvio(2500, 250000)).toBe(0);
+  });
+
+  it("sin envío (retiro en el local) sigue en 0", () => {
+    expect(calcularEnvio(0, 1000)).toBe(0);
   });
 });
