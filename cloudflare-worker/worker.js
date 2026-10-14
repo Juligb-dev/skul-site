@@ -2026,7 +2026,8 @@ async function crearPreferenciaMercadoPago(env, { orderId, total, items, shippin
    confiar por sí solo: cualquiera que conozca la URL podría mandar un
    POST diciendo que un pedido se pagó. Por eso el orden es:
 
-     1. validar la firma (HMAC) del aviso — si hay MP_WEBHOOK_SECRET,
+     1. validar la firma (HMAC) del aviso — señal fuerte; si no coincide
+        igual seguimos (red de seguridad) salvo MP_WEBHOOK_FIRMA_ESTRICTA=1,
      2. leer el pago REAL desde la API de MP con nuestro token,
      3. comparar el monto del pago con el total del pedido,
      4. recién ahí marcar el pedido.
@@ -2060,19 +2061,36 @@ async function handleMercadoPagoWebhook(request, env) {
     return new Response("sin id", { status: 200 });
   }
 
-  // Firma: si hay secreto configurado, se EXIGE. Si no, se procesa pero se
-  // avisa fuerte en el log: sin secreto, cualquiera podría intentar forzar
-  // un "pagado" (la validación de monto de más abajo lo limita, pero igual).
-  if (env.MP_WEBHOOK_SECRET) {
-    const firmaOk = await firmaWebhookValida(env.MP_WEBHOOK_SECRET, request, idPago);
-    if (!firmaOk) {
-      console.warn("[mp/webhook] Firma inválida: se descarta el aviso.");
+  // MP firma cada aviso con la clave secreta del webhook (HMAC-SHA256, en hex,
+  // sobre `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`). Aceptamos la
+  // firma si coincide con CUALQUIERA de las claves cargadas (principal y de
+  // prueba), porque MP maneja una clave distinta por modo.
+  //
+  // IMPORTANTE: la firma es una señal fuerte, pero NO la única barrera. La
+  // decisión se toma releyendo el pago en MP (fuente de verdad) y comparando
+  // el monto con el total del pedido; nunca confiamos en el aviso. Por eso,
+  // si la firma no coincide, igual seguimos y lo dejamos bien anotado en el
+  // log: así una rareza/rotación de la clave de MP no hace perder una venta
+  // real. Si en algún momento querés exigirla sí o sí, cargá la variable
+  // `MP_WEBHOOK_FIRMA_ESTRICTA=1` y ante firma inválida se devuelve 401.
+  const secretosWebhook = [env.MP_WEBHOOK_SECRET, env.MP_WEBHOOK_SECRET_PRUEBA].filter(Boolean);
+  const firmaEstricta = String(env.MP_WEBHOOK_FIRMA_ESTRICTA || "") === "1";
+  let firmaOk = false;
+  for (const secreto of secretosWebhook) {
+    if (await firmaWebhookValida(secreto, request, idPago)) {
+      firmaOk = true;
+      break;
+    }
+  }
+  if (!firmaOk) {
+    if (firmaEstricta) {
+      console.warn("[mp/webhook] Firma inválida (modo estricto): se descarta el aviso.");
       return new Response("firma inválida", { status: 401 });
     }
-  } else {
     console.warn(
-      "[mp/webhook] MP_WEBHOOK_SECRET no configurado: se procesa SIN validar la firma. " +
-        "Cargalo con `wrangler secret put MP_WEBHOOK_SECRET`."
+      secretosWebhook.length
+        ? "[mp/webhook] Firma inválida: se continúa igual (red de seguridad); la decisión sale de releer el pago en MP."
+        : "[mp/webhook] Sin MP_WEBHOOK_SECRET: no se valida la firma; la decisión sale de releer el pago en MP."
     );
   }
 
@@ -2115,7 +2133,7 @@ async function handleMercadoPagoWebhook(request, env) {
   // no cubrió el total) sin exponer datos del comprador.
   console.log(
     `[mp/webhook] pedido=${orderId} pago=${mpPaymentId} estado_mp=${pago.status} -> ${estado} ` +
-      `monto=${Number(pago.transaction_amount) || 0} total=${Number(original.total) || 0}`
+      `monto=${Number(pago.transaction_amount) || 0} total=${Number(original.total) || 0} firma=${firmaOk ? "ok" : "sin_validar"}`
   );
 
   // Idempotencia: MP reintenta el mismo aviso. Si ya está anotado ese pago

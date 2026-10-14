@@ -41,7 +41,8 @@ No hace falta SDK en el navegador. Es lo más rápido de conectar y lo más segu
    (aprobado/pendiente) y el box de seguimiento que ya existe.
 5. **Webhook (`cloudflare-worker/worker.js` → `handleMercadoPagoWebhook`, ruta
    `/mp/webhook`):** ya está implementado. Al recibir la notificación:
-   - valida la firma `x-signature` (HMAC-SHA256 con `MP_WEBHOOK_SECRET`),
+   - verifica la firma `x-signature` (HMAC-SHA256 con `MP_WEBHOOK_SECRET` o
+     `MP_WEBHOOK_SECRET_PRUEBA`) **como señal, no como única barrera**,
    - lee el pago REAL de MP (`GET /v1/payments/{id}`) con `MP_ACCESS_TOKEN`,
    - busca el pedido por `external_reference` (= `orderId`),
    - compara el monto del pago con el `total` guardado en el pedido: solo marca
@@ -50,6 +51,13 @@ No hace falta SDK en el navegador. Es lo más rápido de conectar y lo más segu
    - anota `paymentStatus` / `mpPaymentId` / `paidAmount` en `/orders` (y
      `paymentStatus: "paid"` en `/orderTracking`) y avisa por Telegram.
    Es idempotente: si MP reintenta el mismo aviso, no vuelve a escribir.
+
+   **Sobre la firma:** como el pedido se marca pagado únicamente después de
+   releer el pago en MP y comparar el monto, una firma que no coincide **no
+   descarta el aviso**: se procesa igual y queda bien anotado en el log (así una
+   rotación o rareza de la clave de MP no pierde una venta real). Para volver al
+   modo estricto (401 ante firma inválida), setear la variable
+   `MP_WEBHOOK_FIRMA_ESTRICTA = "1"`.
 
 ## Puntos exactos de cambio
 

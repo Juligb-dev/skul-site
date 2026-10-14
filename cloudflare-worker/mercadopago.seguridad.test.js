@@ -261,7 +261,7 @@ describe("webhook de Mercado Pago", () => {
     expect(fs.docs.get("orders/ORD1").data.paymentStatus).toBeUndefined();
   });
 
-  it("rechaza el aviso con firma inválida cuando hay secreto", async () => {
+  it("con firma inválida igual procesa: la decisión sale de releer MP (red de seguridad)", async () => {
     const { fs } = montarFirestore(
       { "orders/ORD1": docDePrueba({ ...PEDIDO_GUARDADO }) },
       { mpPagos: { "123": pagoAprobado() } }
@@ -271,6 +271,25 @@ describe("webhook de Mercado Pago", () => {
       worker,
       { type: "payment", data: { id: "123" } },
       { env: { MP_ACCESS_TOKEN: "tok", MP_WEBHOOK_SECRET: "s3cr3t0" }, headers: { "x-signature": "ts=1,v1=deadbeef" } }
+    );
+
+    expect(status).toBe(200);
+    expect(fs.docs.get("orders/ORD1").data.paymentStatus).toBe("paid");
+  });
+
+  it("con MP_WEBHOOK_FIRMA_ESTRICTA=1 descarta el aviso de firma inválida", async () => {
+    const { fs } = montarFirestore(
+      { "orders/ORD1": docDePrueba({ ...PEDIDO_GUARDADO }) },
+      { mpPagos: { "123": pagoAprobado() } }
+    );
+
+    const { status } = await pedirWebhook(
+      worker,
+      { type: "payment", data: { id: "123" } },
+      {
+        env: { MP_ACCESS_TOKEN: "tok", MP_WEBHOOK_SECRET: "s3cr3t0", MP_WEBHOOK_FIRMA_ESTRICTA: "1" },
+        headers: { "x-signature": "ts=1,v1=deadbeef" },
+      }
     );
 
     expect(status).toBe(401);
@@ -291,6 +310,48 @@ describe("webhook de Mercado Pago", () => {
       {
         env: { MP_ACCESS_TOKEN: "tok", MP_WEBHOOK_SECRET: "s3cr3t0" },
         headers: { "x-request-id": requestId, "x-signature": `ts=${ts},v1=${firma("s3cr3t0", "123", requestId, ts)}` },
+      }
+    );
+
+    expect(status).toBe(200);
+    expect(fs.docs.get("orders/ORD1").data.paymentStatus).toBe("paid");
+  });
+
+  it("acepta la firma si coincide con el secreto de prueba (MP firma distinto según el modo)", async () => {
+    const { fs } = montarFirestore(
+      { "orders/ORD1": docDePrueba({ ...PEDIDO_GUARDADO }) },
+      { mpPagos: { "123": pagoAprobado() } }
+    );
+
+    const requestId = "req-prueba";
+    const ts = "1";
+    const { status } = await pedirWebhook(
+      worker,
+      { type: "payment", data: { id: "123" } },
+      {
+        env: { MP_ACCESS_TOKEN: "tok", MP_WEBHOOK_SECRET: "produccion", MP_WEBHOOK_SECRET_PRUEBA: "prueba" },
+        headers: { "x-request-id": requestId, "x-signature": `ts=${ts},v1=${firma("prueba", "123", requestId, ts)}` },
+      }
+    );
+
+    expect(status).toBe(200);
+    expect(fs.docs.get("orders/ORD1").data.paymentStatus).toBe("paid");
+  });
+
+  it("si la firma no coincide con ninguno de los secretos, igual procesa (red de seguridad)", async () => {
+    const { fs } = montarFirestore(
+      { "orders/ORD1": docDePrueba({ ...PEDIDO_GUARDADO }) },
+      { mpPagos: { "123": pagoAprobado() } }
+    );
+
+    const requestId = "req-x";
+    const ts = "1";
+    const { status } = await pedirWebhook(
+      worker,
+      { type: "payment", data: { id: "123" } },
+      {
+        env: { MP_ACCESS_TOKEN: "tok", MP_WEBHOOK_SECRET: "produccion", MP_WEBHOOK_SECRET_PRUEBA: "prueba" },
+        headers: { "x-request-id": requestId, "x-signature": `ts=${ts},v1=${firma("otro", "123", requestId, ts)}` },
       }
     );
 
