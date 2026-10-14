@@ -85,3 +85,26 @@ No hace falta SDK en el navegador. Es lo más rápido de conectar y lo más segu
   pedidos distintos.
 - **Cuotas / "Ahora 12"**: se configuran en el panel o en la preferencia
   (`payment_methods`). Afecta la comisión, no el código.
+
+## Cómo probarlo SIN pagar
+
+No hace falta pagarte a vos mismo para verificar la integración. Ordenadas de
+menos a más completa:
+
+1. **La firma, contra MP de verdad** (gratis, y es lo más delicado). El panel de
+   MP tiene **Webhooks → Simular notificación**. Ojo: el simulador **no ofrece
+   el evento "Pagos"**, solo otros (mp-connect, reclamos, etc.). Se puede usar
+   igual porque **esos avisos también vienen firmados por MP**. Como el handler
+   ignora lo que no es `payment` *antes* de validar la firma, para probarla hay
+   que meter un log de diagnóstico temporal que llame a `firmaWebhookValida`
+   para cualquier tipo y anote `firma_valida=true/false`. Si valida con un aviso
+   simulado, la firma está bien resuelta (se comparó contra el HMAC real de MP).
+   Sacar el log y redesplegar después.
+2. **El resto del webhook** (leer el pago, comparar el monto, anotar
+   `paymentStatus`, Telegram) está cubierto por los tests del Worker
+   (`mercadopago.seguridad.test.js`) con un Firestore y una API de MP falsos.
+3. **El flujo completo (pago aprobado → `paid`)** de verdad solo se prueba con
+   un pago. Sin gastar plata: **usuarios de prueba + tarjetas de prueba** de MP
+   (panel → Cuentas de prueba). Requiere usar por un rato el **Access Token del
+   usuario de prueba** en el Worker (`wrangler secret put MP_ACCESS_TOKEN`) y
+   después **volver a poner el de producción**.
