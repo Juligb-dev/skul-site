@@ -6,11 +6,14 @@
  * máquina. Firebase es el backend gratuito que hace que "cerrar la web" y
  * "cargar productos" funcione para TODOS al mismo tiempo.
  *
- * Qué exporta: tres cosas, y todas las usan los hooks —
- *   `auth` → Firebase Auth, el login del panel (email + contraseña).
+ * Qué exporta: dos cosas, y las usan los hooks —
  *   `db`   → Firestore, la base de datos. Guarda en "colecciones" documentos
  *            con campos: products, orders, coupons, giftCards, settings/site...
- *   `app`  → la instancia de Firebase, por default. Casi nadie la usa directo.
+ *   `app`  → la instancia de Firebase, la usa firebaseAuth.js para armar Auth.
+ *
+ * OJO: Firebase Auth (el login del panel) NO se inicializa acá. Vive en
+ * firebaseAuth.js, que carga `firebase/auth` a demanda para que el visitante
+ * que solo mira la tienda no descargue ese módulo. Ver ese archivo.
  *
  * Requisito previo: la config de abajo tiene que ser la tuya (pasos 1 a 5 acá
  * abajo) y las reglas de firestore.rules tienen que estar publicadas, si no
@@ -48,7 +51,6 @@
 
 
    import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Acá abajo va tu firebaseConfig real, el que te muestra Firebase Console en
@@ -69,9 +71,10 @@ const firebaseConfig = {
 // el bundle.
 const app = initializeApp(firebaseConfig);
 
-// Firebase Auth: maneja el login del panel. El usuario admin es el que creaste
-// en el paso 2 de arriba; su sesión vive acá y useAdminAuth la escucha.
-export const auth = getAuth(app);
+// Firebase Auth: NO se inicializa acá a propósito. El login del panel
+// (`useAdminAuth`) y la subida firmada de fotos (`cloudinary.js`) lo piden
+// por demanda a `firebaseAuth.js`; así el visitante de la tienda no descarga
+// el SDK de Auth (es un módulo aparte, pesado).
 
 // Firestore: la base de datos. Todo lo que hay en las colecciones (products,
 // orders, giftCards...) se consulta a través de este `db`. onSnapshot —lo que
@@ -79,7 +82,7 @@ export const auth = getAuth(app);
 // avisa cada vez que un documento cambia, sin que tengas que recargar la página.
 export const db = getFirestore(app);
 
-// La app en sí, por si algún módulo la necesita completa (hoy, ninguno).
+// La app en sí, por default. La usa firebaseAuth.js para armar el Auth.
 export default app;
 
 

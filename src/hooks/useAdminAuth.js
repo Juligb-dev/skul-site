@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { auth } from "../firebase.js";
+import { getFirebaseAuth } from "../firebaseAuth.js";
 
 /**
  * useAdminAuth — quién está logueado en /admin.
@@ -33,29 +32,50 @@ import { auth } from "../firebase.js";
  *
  * De qué colecciones depende: ninguna. No toca Firestore: solo habla con
  * Authentication. Quien consume esto: /admin/AdminApp.jsx, /admin/AdminLogin.jsx
- * y /admin/SiteGate.jsx.
+ * y /admin/SiteGate.jsx (este último solo cuando la tienda está cerrada).
+ *
+ * OJO con el peso: el SDK de Firebase Auth se pide con `getFirebaseAuth()` en
+ * vez de importarse arriba. Así este hook no arrastra `firebase/auth` al bundle
+ * principal y el visitante que solo mira la tienda abierta nunca lo descarga.
  */
 export function useAdminAuth() {
   // Tres estados posibles, no dos: undefined = todavía no sé, null = no hay
-  // sesión. Arranca en undefined a propósito para no confundir "todavía no
-  // consulté" con "el visitante no está logueado".
-  const [user, setUser] = useState(undefined); // undefined = cargando, null = sin sesión
+  // sesión. Arranca en undefined a propósito para no mostrar un destello del
+  // login en cada recarga mientras Firebase responde.
+  const [user, setUser] = useState(undefined);
 
   useEffect(() => {
-    // onAuthStateChanged se queda escuchando: dispara una vez con el estado
-    // actual y otra vez cada vez que cambia (login, logout, o cuando Firebase
-    // refresca el token solo). Me devuelve una función para desuscribirme; si
-    // no la llamo al desmontar, el listener queda vivo intentando pintar un
-    // componente que ya no existe.
-    const unsub = onAuthStateChanged(auth, setUser);
-    return () => unsub();
+    let vivo = true;
+    let desuscribir = null;
+
+    // getFirebaseAuth() resuelve cuando el módulo de Auth ya se descargó (la
+    // primera vez) y devuelve la instancia además de las funciones. Una vez
+    // resuelta, onAuthStateChanged avisa el estado actual y cada cambio.
+    getFirebaseAuth().then(({ modulo, auth }) => {
+      if (!vivo) return;
+      desuscribir = modulo.onAuthStateChanged(auth, (usuario) => {
+        if (vivo) setUser(usuario);
+      });
+    }).catch(() => {
+      // Si el chunk de Auth no se pudo descargar (red cortada), no dejamos la
+      // pantalla colgada en "Cargando…": tratamos al visitante como "sin
+      // sesión". El login que llama después volverá a pedir el módulo y ahí
+      // sí mostrará el error real.
+      if (vivo) setUser(null);
+    });
+
+    return () => {
+      vivo = false;
+      if (desuscribir) desuscribir();
+    };
   }, []);
 
-  // login y logout no son async/await: devuelven la promesa de Firebase tal
-  // cual, para que la maneje el componente que las llama (y muestre el error
-  // sin que este hook tenga que saber de UI).
-  const login = (email, password) => signInWithEmailAndPassword(auth, email, password);
-  const logout = () => signOut(auth);
+  // login/logout devuelven una promesa, igual que antes, pero esperan primero
+  // a que el módulo de Auth esté cargado. El que llama (AdminLogin) hace
+  // await con try/catch y muestra el error si el mail o la contraseña fallan.
+  const login = (email, password) =>
+    getFirebaseAuth().then(({ modulo, auth }) => modulo.signInWithEmailAndPassword(auth, email, password));
+  const logout = () => getFirebaseAuth().then(({ modulo, auth }) => modulo.signOut(auth));
 
   // uid (identificador único e inmutable de un usuario de Firebase) hardcodeado:
   // tiene que coincidir con el isAdmin() de firestore.rules. Si algún día se

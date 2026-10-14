@@ -10,9 +10,16 @@ import ClosedScreen from "./ClosedScreen.jsx";
  * TODA visita a la tienda pública pasa por acá, sin excepción). Lee el
  * estado del sitio en Firestore y decide entre tres desenlaces:
  *
- *   1. Todavía no sé → muestro un "Cargando…".
- *   2. La tienda está abierta (o sos el admin) → muestro los hijos.
- *   3. Está cerrada y no sos admin → muestro la pantalla de cierre.
+ *   1. Todavía no sé (no llegó Firestore) → muestro un "Cargando…".
+ *   2. La tienda está abierta → muestro los hijos, sin preguntar nada más.
+ *   3. Está cerrada → ahí sí pregunto la sesión (CerradaGate): si sos el
+ *      admin, ves la tienda con una franja naranja; si no, la pantalla de
+ *      cierre (y si la sesión todavía no resolvió, "Cargando…").
+ *
+ * Por qué la rama "abierta" no consulta la sesión: es un atajo de
+ * rendimiento. El visitante común nunca necesita loguearse para ver la
+ * tienda abierta, y no preguntar por la sesión evita descargar el SDK de
+ * Firebase Auth en la primera visita. Ver `src/firebaseAuth.js`.
  *
  * Props que recibe:
  *   - children: la tienda completa (StoreApp). No lo renderizo ni lo
@@ -37,47 +44,84 @@ import ClosedScreen from "./ClosedScreen.jsx";
 export default function SiteGate({ children }) {
   // status === null significa "todavía no llegó la respuesta de Firestore".
   const { status } = useSiteStatus();
-  // user === undefined significa "todavía no sé si hay sesión"; con eso
-  // armo el mismo "Cargando…" de abajo.
-  const { isAdmin, user } = useAdminAuth();
 
-  // Todavía cargando el estado de Firestore / la sesión de admin.
+  // Todavía cargando el estado del sitio.
   //
   // Antes devolvía `null`: en una conexión lenta el visitante veía un
   // rectángulo blanco (a veces varios segundos) sin ninguna pista de que
   // la página estaba trabajando. Se muestra el mismo fondo de la tienda
   // con un aviso mínimo para que no parezca que la web está rota.
-  if (status === null || user === undefined) {
-    return (
-      // role/aria-live le dicen a un lector de pantalla que esto es un
-      // estado que cambia solo, así que lo anuncia sin que haga falta
-      // que el visitante haga algo.
-      <div className="closed-screen" role="status" aria-live="polite">
-        <p className="mono tracked-lg" style={{ fontSize: 11, color: "var(--grey-2)", marginBottom: 22 }}>SKUL</p>
-        <p style={{ fontSize: 13.5, color: "var(--grey-2)" }}>Cargando…</p>
-      </div>
-    );
+  //
+  // OJO: acá NO esperamos la sesión de admin. Si la tienda está abierta,
+  // dejamos pasar a los hijos enseguida; preguntar "¿sos el dueño?" solo
+  // hace falta cuando está cerrada, y esa pregunta vive en CerradaGate
+  // (que además es la única que descarga el SDK de Firebase Auth).
+  if (status === null) {
+    return <Cargando />;
   }
 
-  // Si estás logueado como admin, siempre podés ver y probar el sitio,
-  // aunque esté "cerrado" para el resto.
-  //
-  // El aviso naranja va arriba para que el dueño no se confunda: si
-  // está revisando el sitio pensando que los clientes lo están viendo,
-  // y en realidad lo único que ve es el panel de admin.
-  if (status.open || isAdmin) {
+  // Tienda abierta: entra todo el mundo, sin mirar sesiones. La tienda no
+  // se monta dos veces ni pierde estado porque solo pasamos los hijos.
+  if (status.open) {
+    return <>{children}</>;
+  }
+
+  // Tienda cerrada: ahora sí necesitamos saber si sos el admin para
+  // dejarte pasar (y avisarte con la franja naranja).
+  return <CerradaGate message={status.message}>{children}</CerradaGate>;
+}
+
+/**
+ * CERRADAGATE — la decisión fina de la tienda cerrada.
+ *
+ * Qué problema resuelve: separar en dos el caso "abierto" del "cerrado" es
+ * lo que permite que useAdminAuth (y con él, todo el SDK de Firebase Auth)
+ * NO se monte cuando la tienda está abierta. Es un componente aparte y no
+ * un `if` adentro de SiteGate porque los hooks no se pueden llamar
+ * condicionalmente.
+ *
+ * Ramas: sin sesión resuelta → "Cargando…"; admin → hijos + franja naranja;
+ * visitante común → pantalla de cierre.
+ */
+function CerradaGate({ message, children }) {
+  const { isAdmin, user } = useAdminAuth();
+
+  if (user === undefined) {
+    return <Cargando />;
+  }
+
+  if (isAdmin) {
     return (
       <>
-        {isAdmin && !status.open && <AdminPreviewBar />}
+        <AdminPreviewBar />
         {children}
       </>
     );
   }
 
-  // Última salida: cerrada y sin sesión de admin. Paso el mensaje tal
-  // cual lo escribió el dueño; ClosedScreen tiene su propio texto de
-  // respaldo si viene vacío.
-  return <ClosedScreen message={status.message} />;
+  // Paso el mensaje tal cual lo escribió el dueño; ClosedScreen tiene su
+  // propio texto de respaldo si viene vacío.
+  return <ClosedScreen message={message} />;
+}
+
+/**
+ * CARGANDO — el estado de espera mientras Firestore responde.
+ *
+ * Antes devolvía `null`: en una conexión lenta el visitante veía un
+ * rectángulo blanco (a veces varios segundos) sin ninguna pista de que la
+ * página estaba trabajando. Se muestra el mismo fondo de la tienda con un
+ * aviso mínimo para que no parezca que la web está rota.
+ */
+function Cargando() {
+  return (
+    // role/aria-live le dicen a un lector de pantalla que esto es un
+    // estado que cambia solo, así que lo anuncia sin que haga falta
+    // que el visitante haga algo.
+    <div className="closed-screen" role="status" aria-live="polite">
+      <p className="mono tracked-lg" style={{ fontSize: 11, color: "var(--grey-2)", marginBottom: 22 }}>SKUL</p>
+      <p style={{ fontSize: 13.5, color: "var(--grey-2)" }}>Cargando…</p>
+    </div>
+  );
 }
 
 /**

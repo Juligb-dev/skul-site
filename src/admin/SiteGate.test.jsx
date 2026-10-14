@@ -13,11 +13,18 @@
  *  lean bien la base ya está cubierto en src/hooks/*.test.jsx, con el
  *  Firestore en memoria.
  *
- *  Las cuatro ramas:
- *    1. cargando (status null o user undefined) → pantalla "Cargando…"
- *    2. abierta → la tienda (children)
- *    3. cerrada y no sos admin → la pantalla de cierre, SIN children
- *    4. cerrada y SÍ sos admin → la tienda + aviso naranja de admin
+ *  Las ramas:
+ *    1. cargando (status null) → pantalla "Cargando…"
+ *    2. abierta → la tienda (children), SIN consultar la sesión
+ *    3. cerrada → recién ahí se mira la sesión:
+ *       a. user undefined → "Cargando…"
+ *       b. no sos admin → la pantalla de cierre, SIN children
+ *       c. SÍ sos admin → la tienda + aviso naranja de admin
+ *
+ *  Nota de rendimiento: con la tienda abierta, SiteGate NO monta
+ *  useAdminAuth. Eso es a propósito (ver CerradaGate en SiteGate.jsx):
+ *  evita descargar el SDK de Firebase Auth y esperar la sesión para algo
+ *  que no hace falta cuando la vidriera ya está abierta.
  * ============================================================
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -51,6 +58,10 @@ function visitante() {
   return { user: null, isAdmin: false, login: vi.fn(), logout: vi.fn() };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 /** El dueño: mismo uid que está escrito en firestore.rules. */
 function duenio() {
   return {
@@ -76,8 +87,8 @@ describe("SiteGate — rama 1: todavía no sé", () => {
     expect(screen.queryByText("CONTENIDO DE LA TIENDA")).not.toBeInTheDocument();
   });
 
-  it("también espera si la sesión de auth todavía no se resolvió (user undefined)", () => {
-    useSiteStatus.mockReturnValue({ status: sitio(true), error: null });
+  it("con la tienda cerrada, espera la sesión antes de decidir si sos el dueño", () => {
+    useSiteStatus.mockReturnValue({ status: sitio(false), error: null });
     useAdminAuth.mockReturnValue({ user: undefined, isAdmin: false });
 
     render(<SiteGate><Tienda /></SiteGate>);
@@ -136,6 +147,27 @@ describe("SiteGate — rama 2: tienda abierta", () => {
 
     expect(screen.getByText("OTRO BLOQUE")).toBeInTheDocument();
     expect(screen.getByText("CONTENIDO DE LA TIENDA")).toBeInTheDocument();
+  });
+
+  it("no espera la sesión de admin: si está abierta, el visitante ve la tienda al toque", () => {
+    // Aunque la sesión todavía no se resolvió (user undefined), con la
+    // tienda abierta no hay nada que preguntarle a Auth: se entra igual.
+    useSiteStatus.mockReturnValue({ status: sitio(true), error: null });
+    useAdminAuth.mockReturnValue({ user: undefined, isAdmin: false });
+
+    render(<SiteGate><Tienda /></SiteGate>);
+
+    expect(screen.getByText("CONTENIDO DE LA TIENDA")).toBeInTheDocument();
+    expect(screen.queryByText("Cargando…")).not.toBeInTheDocument();
+  });
+
+  it("ni siquiera consulta la sesión: no monta useAdminAuth (no baja el SDK de Auth)", () => {
+    useSiteStatus.mockReturnValue({ status: sitio(true), error: null });
+    useAdminAuth.mockReturnValue(visitante());
+
+    render(<SiteGate><Tienda /></SiteGate>);
+
+    expect(useAdminAuth).not.toHaveBeenCalled();
   });
 });
 

@@ -39,8 +39,12 @@ vi.mock("../data/config.js", () => ({
 }));
 
 // El auth del navegador: acá lo controla el test (admin logueado o no).
+// cloudinary.js lo pide por getFirebaseAuth(), que carga `firebase/auth` a
+// demanda; el test reemplaza esa función y devuelve un auth de mentira.
 const authStub = vi.hoisted(() => ({ currentUser: null }));
-vi.mock("../firebase.js", () => ({ auth: authStub }));
+vi.mock("../firebaseAuth.js", () => ({
+  getFirebaseAuth: () => Promise.resolve({ auth: authStub, modulo: {} }),
+}));
 
 import { uploadToCloudinary } from "./cloudinary.js";
 

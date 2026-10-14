@@ -26,7 +26,7 @@
  *      Worker. Ver /cloudflare-worker/README.md.
  * ============================================================
  */
-import { auth } from "../firebase.js";
+import { getFirebaseAuth } from "../firebaseAuth.js";
 import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_CLOUD_API_KEY, ORDER_NOTIFY_WORKER_URL } from "../data/config.js";
 
 /**
@@ -82,6 +82,7 @@ export async function uploadToCloudinary(fileOrDataUrl) {
   //    getIdToken() devuelve un JWT (un texto con tres partes separadas
   //    por puntos) que acredita quién sos; el Worker lo valida contra
   //    Firebase y solo firma para los admins.
+  const { auth } = await getFirebaseAuth();
   const usuario = auth.currentUser;
   if (!usuario) {
     throw new Error("Tu sesión venció. Volvé a entrar al panel y probá de nuevo.");
