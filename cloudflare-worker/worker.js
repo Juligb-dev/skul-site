@@ -2110,6 +2110,14 @@ async function handleMercadoPagoWebhook(request, env) {
   const estado = estadoSegunPago(pago, original.total);
   const mpPaymentId = String(pago.id);
 
+  // Rastro en el log de cada aviso de pago procesado: sirve para diagnosticar
+  // en producción (por ejemplo, si un pago quedó "underpaid" porque el monto
+  // no cubrió el total) sin exponer datos del comprador.
+  console.log(
+    `[mp/webhook] pedido=${orderId} pago=${mpPaymentId} estado_mp=${pago.status} -> ${estado} ` +
+      `monto=${Number(pago.transaction_amount) || 0} total=${Number(original.total) || 0}`
+  );
+
   // Idempotencia: MP reintenta el mismo aviso. Si ya está anotado ese pago
   // con el mismo estado, no volvemos a escribir ni a avisar por Telegram.
   if (original.mpPaymentId === mpPaymentId && original.paymentStatus === estado) {
