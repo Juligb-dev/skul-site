@@ -149,6 +149,54 @@ describe("agencias y geocp — lo que el checkout necesita para armar la lista d
 });
 
 /* -------------------------------------------------------------- */
+describe("MiCorreo caído — el checkout se entera con un mensaje claro, no con un 500", () => {
+  // Contexto: un día Correo Argentino devolvió 520 (se cayó su origen).
+  // Como getCorreoToken tiraba excepción, el error se escapaba hasta el
+  // catch general del fetch() y el cliente recibía un 500 genérico
+  // ("No se pudo completar la operación") en vez del 502 amigable que
+  // invita a reintentar o elegir retiro en el local. Estos tests fijan
+  // ese comportamiento: la cotización y las sucursales NUNCA devuelven 500.
+
+  it("rates: si MiCorreo no autentica, es 502 con mensaje entendible", async () => {
+    montarFirestore({}, { correoFalla: true, adminUid: null });
+    const { status, json } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(502);
+    expect(json.error).toMatch(/No pudimos cotizar el envío/);
+  });
+
+  it("agencies: si MiCorreo no autentica, es 502 (antes era un 500)", async () => {
+    montarFirestore({}, { correoFalla: true, adminUid: null });
+    const { status, json } = await pedir(worker, { action: "agencies", provinceCode: "B" });
+    expect(status).toBe(502);
+    expect(json.error).toMatch(/No pudimos traer las sucursales/);
+  });
+
+  it("rates: si Correo corta la conexión (el 520 real), es 502 y no 500", async () => {
+    montarFirestore({}, { adminUid: null });
+    const red = globalThis.fetch;
+    globalThis.fetch = (url, init) =>
+      String(url).includes("/token")
+        ? Promise.reject(new TypeError("connection canceled"))
+        : red(url, init);
+    const { status, json } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(502);
+    expect(json.error).toMatch(/No pudimos cotizar el envío/);
+  });
+
+  it("agencies: si Correo corta la conexión, es 502 y no 500", async () => {
+    montarFirestore({}, { adminUid: null });
+    const red = globalThis.fetch;
+    globalThis.fetch = (url, init) =>
+      String(url).includes("/token")
+        ? Promise.reject(new TypeError("connection canceled"))
+        : red(url, init);
+    const { status, json } = await pedir(worker, { action: "agencies", provinceCode: "B" });
+    expect(status).toBe(502);
+    expect(json.error).toMatch(/No pudimos traer las sucursales/);
+  });
+});
+
+/* -------------------------------------------------------------- */
 describe("CORS — la lista blanca de orígenes", () => {
   it.each(["https://skullt.web.app", "https://skullt.firebaseapp.com", "http://localhost:5173"])(
     "devuelve el Allow-Origin para %s",

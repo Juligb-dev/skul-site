@@ -1715,39 +1715,56 @@ async function cotizarCorreo(env, postalCodeDestination, pesoGramos) {
     length: 35,
   };
 
-  const res = await fetch(`${env.CORREO_BASE_URL}/rates`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${await getCorreoToken(env)}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      // MiCorreo pide tres cosas: el token, el número de cliente y el CP
-      // de salida. El número de cliente NO es el usuario ni la contraseña:
-      // es el "ID de cliente" que figura arriba a la izquierda del panel
-      // de MiCorreo (con los ceros adelante).
-      customerId: env.CORREO_CUSTOMER_ID,
-      postalCodeOrigin: env.CORREO_ORIGIN_POSTAL_CODE,
-      postalCodeDestination: String(postalCodeDestination || ""),
-      // sin deliveredType: pedimos las dos cotizaciones (domicilio y sucursal) juntas
-      dimensions: medidas,
-    }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    console.error("[rates] MiCorreo respondió", res.status, data.message || data);
+  // Todo adentro de un try/catch: si MiCorreo se cae, corta la conexión o
+  // devuelve cualquier cosa, esta función NUNCA explota. Devuelve
+  // { error: true } y quien la llama decide el mensaje (el checkout muestra
+  // "No pudimos cotizar el envío...", no un 500 genérico).
+  let token;
+  try {
+    token = await getCorreoToken(env);
+  } catch (err) {
+    console.error("[rates] No se pudo autenticar con MiCorreo:", err?.message || err);
     return { error: true };
   }
 
-  // Nos quedamos solo con lo que el sitio necesita, separado por tipo.
-  const rates = data.rates || [];
-  const domicilio = rates.find((r) => r.deliveredType === "D");
-  const sucursal = rates.find((r) => r.deliveredType === "S");
-  return {
-    domicilio: domicilio ? domicilio.price : null,
-    sucursal: sucursal ? sucursal.price : null,
-  };
+  try {
+    const res = await fetch(`${env.CORREO_BASE_URL}/rates`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        // MiCorreo pide tres cosas: el token, el número de cliente y el CP
+        // de salida. El número de cliente NO es el usuario ni la contraseña:
+        // es el "ID de cliente" que figura arriba a la izquierda del panel
+        // de MiCorreo (con los ceros adelante).
+        customerId: env.CORREO_CUSTOMER_ID,
+        postalCodeOrigin: env.CORREO_ORIGIN_POSTAL_CODE,
+        postalCodeDestination: String(postalCodeDestination || ""),
+        // sin deliveredType: pedimos las dos cotizaciones (domicilio y sucursal) juntas
+        dimensions: medidas,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error("[rates] MiCorreo respondió", res.status, data.message || data);
+      return { error: true };
+    }
+
+    // Nos quedamos solo con lo que el sitio necesita, separado por tipo.
+    const rates = data.rates || [];
+    const domicilio = rates.find((r) => r.deliveredType === "D");
+    const sucursal = rates.find((r) => r.deliveredType === "S");
+    return {
+      domicilio: domicilio ? domicilio.price : null,
+      sucursal: sucursal ? sucursal.price : null,
+    };
+  } catch (err) {
+    console.error("[rates] Error consultando a MiCorreo:", err?.message || err);
+    return { error: true };
+  }
 }
 
 /* ============================================================
@@ -1763,17 +1780,37 @@ async function handleAgencies(body, env, cors) {
     return new Response("Falta provinceCode", { status: 400, headers: cors });
   }
 
-  const token = await getCorreoToken(env);
   const base = env.CORREO_BASE_URL;
 
+  // Igual que en cotizarCorreo: si MiCorreo se cae, no queremos un 500
+  // genérico sino un mensaje claro para el checkout. Un 502 es "tratá de
+  // nuevo en un rato", que es exactamente lo que pasa cuando Correo falla.
+  const fallo = () =>
+    new Response(JSON.stringify({ error: "No pudimos traer las sucursales. Probá con otra provincia." }), {
+      status: 502, headers: { ...cors, "Content-Type": "application/json" },
+    });
+
+  let token;
+  try {
+    token = await getCorreoToken(env);
+  } catch (err) {
+    console.error("[agencies] No se pudo autenticar con MiCorreo:", err?.message || err);
+    return fallo();
+  }
+
   const url = `${base}/agencies?customerId=${encodeURIComponent(env.CORREO_CUSTOMER_ID)}&provinceCode=${encodeURIComponent(provinceCode)}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  const data = await res.json().catch(() => ({}));
+  let res;
+  let data;
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    data = await res.json().catch(() => ({}));
+  } catch (err) {
+    console.error("[agencies] Error consultando a MiCorreo:", err?.message || err);
+    return fallo();
+  }
   if (!res.ok) {
     console.error("[agencies] MiCorreo respondió", res.status, data.message || data);
-    return new Response(JSON.stringify({ error: "No pudimos traer las sucursales. Probá con otra provincia." }), {
-      status: res.status, headers: { ...cors, "Content-Type": "application/json" },
-    });
+    return fallo();
   }
 
   // Achicamos la respuesta a lo que el sitio va a mostrar.
