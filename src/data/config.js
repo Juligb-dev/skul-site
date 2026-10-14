@@ -189,8 +189,9 @@ export function getSizesForCat(cat) {
    Firestore. Así el catálogo carga mucho más rápido y no hay
    riesgo de pasarte el límite de tamaño de un documento.
 
-   Instrucciones para conseguir estos dos valores (2 minutos, sin
-   tarjeta): ver /cloudinary/README.md.
+   Instrucciones para configurarlo (2 minutos, sin tarjeta): ver
+   /cloudflare-worker/README.md.
+
    ============================================================ */
 // Nombre de tu cuenta en Cloudinary (sale del dashboard, arriba a la izquierda).
 // Va en la URL de cada foto guardada en Firestore; si lo cambiás, las fotos ya

@@ -23,7 +23,7 @@
  *      el que genera la firma de la subida (más abajo te explico por
  *      qué).
  *    - El API secret de Cloudinary cargado como variable privada del
- *      Worker. Ver /cloudflare-worker/README.md y /cloudinary/README.md.
+ *      Worker. Ver /cloudflare-worker/README.md.
  * ============================================================
  */
 import { auth } from "../firebase.js";
