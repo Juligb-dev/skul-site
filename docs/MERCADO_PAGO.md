@@ -41,8 +41,8 @@ No hace falta SDK en el navegador. Es lo más rápido de conectar y lo más segu
    (aprobado/pendiente) y el box de seguimiento que ya existe.
 5. **Webhook (`cloudflare-worker/worker.js` → `handleMercadoPagoWebhook`, ruta
    `/mp/webhook`):** ya está implementado. Al recibir la notificación:
-   - verifica la firma `x-signature` (HMAC-SHA256 con `MP_WEBHOOK_SECRET` o
-     `MP_WEBHOOK_SECRET_PRUEBA`) **como señal, no como única barrera**,
+   - verifica la firma `x-signature` (HMAC-SHA256 con `MP_WEBHOOK_SECRET`)
+     **como señal, no como única barrera**,
    - lee el pago REAL de MP (`GET /v1/payments/{id}`) con `MP_ACCESS_TOKEN`,
    - busca el pedido por `external_reference` (= `orderId`),
    - compara el monto del pago con el `total` guardado en el pedido: solo marca

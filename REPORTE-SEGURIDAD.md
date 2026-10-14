@@ -4,6 +4,35 @@
 **Fecha:** 2026-10-06
 **Estado general:** suite automatizada en verde — **405 tests web + 159 tests Worker + 42 checks de reglas + build OK**. Cobertura web: **86.44% sentencias / 82.32% funciones / 78.38% ramas / 89.82% líneas** (thresholds 60/60/50/60). Herramientas actualizadas: **vite 6 / vitest 4 / esbuild 0.25** (npm audit pasó de 13 a 5 avisos, todos en la cadena dev del emulador).
 
+---
+
+## Actualización (2026-10-14)
+
+Este informe es la **foto de la auditoría del 06/10/2026**: lo de abajo queda como
+registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run test:all`:
+
+- **Suite:** **420 tests web + 189 tests Worker + 42 checks de reglas**, build OK
+  (0 fallas).
+- **Cobertura web:** **85.95% sentencias / 81.56% funciones / 76.59% ramas /
+  89.61% líneas** (sigue muy por encima de los thresholds 60/60/50/60; la rama
+  bajó un punto porque el SDK de Auth ahora se carga por demanda, ver abajo).
+- **Bundle:** se hizo *code‑splitting*. El visitante de la tienda abierta baja
+  **~247 kB gzip de JavaScript** (antes ~269 kB) y el SDK de Firebase Auth
+  (**39 kB gzip**) ya **no** viaja en la carga inicial: se descarga solo al
+  entrar a `/admin` o cuando la tienda está cerrada. Además, React y Firebase van
+  en chunks aparte de la app, así que un deploy nuevo solo invalida el chunk
+  chico de la app y el resto sigue en caché. Ver `src/firebaseAuth.js`,
+  `src/admin/SiteGate.jsx` y `vite.config.js`.
+- **Mercado Pago:** el pago con tarjeta quedó implementado de punta a punta
+  (Checkout Pro + webhook). Ver `docs/MERCADO_PAGO.md`. El webhook no confía en
+  el aviso: relee el pago real de MP, compara contra el total recalculado en el
+  Worker y, si la firma no coincide, **igual procesa** cuando el pago está
+  aprobado y el monto coincide (red de seguridad). El modo estricto (401 ante
+  firma inválida) se activa con `MP_WEBHOOK_FIRMA_ESTRICTA="1"`.
+- **Siguiente paso #1** de abajo (Playwright + Axe para E2E/a11y) sigue pendiente.
+
+---
+
 Este report resume qué pasó al auditar la tienda de punta a punta y, sobre todo, qué
 encontró la suite que una revisión manual **no** habría encontrado. Todo lo que figura acá
 puede reproducirse corriendo `npm run test:all` (ver *Instrucciones de Ejecución*).
@@ -208,7 +237,9 @@ npm run build       # baseline de que el sitio compila a producción
 ### Siguientes pasos recomendados
 
 1. Playwright + Axe para E2E/a11y sobre navegador real (esta pasada usó jsdom + componentes).
-2. Confirmar el flujo de Mercado Pago (no hay SDK declarado) para poder testear pagos.
+2. ~~Confirmar el flujo de Mercado Pago (no hay SDK declarado) para poder testear pagos.~~
+   ✅ **Hecho (2026-10-14):** Checkout Pro implementado y probado; ver
+   `docs/MERCADO_PAGO.md` y la sección *Actualización* de arriba.
 3. Cuando `firebase` 13 estable o un `@grpc/grpc-js` parcheado estén disponibles,
    subir la cadena para cerrar los 5 avisos restantes de audit y re-correr `test:all`.
 

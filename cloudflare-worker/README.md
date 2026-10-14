@@ -311,13 +311,6 @@ wrangler secret put MP_ACCESS_TOKEN     # Access Token de producción
 wrangler secret put MP_WEBHOOK_SECRET   # clave secreta del webhook (panel de MP)
 ```
 
-Opcional, para probar en el **modo de prueba** de MP (firma distinta a la de
-producción, así que el Worker acepta cualquiera de las dos):
-
-```bash
-wrangler secret put MP_WEBHOOK_SECRET_PRUEBA   # clave secreta del modo prueba
-```
-
 Flujo:
 
 1. `createOrder`, si el pago es `debito`/`credito` y hay `MP_ACCESS_TOKEN`, crea
@@ -325,8 +318,8 @@ Flujo:
    (`init_point`). El sitio redirige ahí.
 2. MP avisa el estado del pago a `POST /mp/webhook` (también acepta GET con la
    query, el IPN viejo). El handler verifica la firma `x-signature` (HMAC-SHA256
-   con `MP_WEBHOOK_SECRET` o `MP_WEBHOOK_SECRET_PRUEBA`), lee el pago real
-   (`GET /v1/payments/{id}`), lo compara con el `total` del pedido y anota
+   con `MP_WEBHOOK_SECRET`), lee el pago real (`GET /v1/payments/{id}`), lo
+   compara con el `total` del pedido y anota
    `paymentStatus` en `/orders` y `/orderTracking`. Es idempotente.
 3. Si el pago cubre el total queda `paid`; si pagó menos, `underpaid` (para
    revisar a mano). El monto del aviso nunca se usa: manda la API de MP.
