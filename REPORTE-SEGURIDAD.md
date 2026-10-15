@@ -30,13 +30,15 @@ registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run tes
   firma inválida) se activa con `MP_WEBHOOK_FIRMA_ESTRICTA="1"`. Para probar sin
   gastar plata hay un modo sandbox explícito (`MP_MODO_PRUEBA="1"`, que manda al
   `sandbox_init_point`).
-- **Shop the Look / MiCorreo:** la cotización de Correo Argentino ahora cachea el
+- **Correo Argentino (MiCorreo):** la cotización ahora cachea el
   token, reintenta ante 5xx/cortes y lo renueva ante un 401/403 (MiCorreo venía
   devolviendo `520` en una de cada tres llamadas).
 - **Repo (2026-10-15):** se activaron en GitHub las **alertas de Dependabot**,
   las **actualizaciones de seguridad** y el **secret scanning con push
   protection** (en un repo público es gratis y frena que se commitee una
-  credencial).
+  credencial). Dependabot encontró 10 avisos y los 10 quedaron cerrados:
+  `@grpc/grpc-js` (override, ver 1.4) y `sharp`/`undici` (parches de las
+  herramientas de `wrangler`). `npm audit` → **0** en la raíz y en el Worker.
 
 ---
 
@@ -117,6 +119,17 @@ emulador y las herramientas Node del SDK. La versión estable más nueva de fire
 No se forzó el fix (`npm audit fix --force`) porque rompería la matriz de versiones
 y el sitio de producción no incluye `@grpc/grpc-js` en el bundle del navegador: el
 SDK de Firestore web usa su propio transporte, no ese módulo.
+
+**Resuelto (2026-10-15).** Los 5 avisos quedaron cerrados con un `overrides` en
+`package.json` que fija `@grpc/grpc-js` en **1.13.6** (el parche, dentro del mismo
+mayor 1.x) en vez de bajar `firebase`: `npm audit` → **0**. Como ese módulo no va al
+bundle, el riesgo era sólo del entorno de desarrollo, pero ahora tampoco está ahí.
+Las herramientas del Worker (`wrangler`) arrastraban además 8 avisos en
+`sharp`/`undici`, también parcheados (`npm audit` en `cloudflare-worker/` → 0).
+Validado con `npm run test:full`: las reglas contra el emulador usan ese transporte
+(el log muestra `GrpcConnection RPC`), así que la suite ejercita el override.
+(De paso: `firebase` 13.0.0 ya salió estable, pero subir un mayor es un cambio
+aparte, con su propia corrida.)
 
 ### 1.5 Puntos ciegos que quedaron fuera del alcance automático
 
@@ -250,8 +263,10 @@ npm run build       # baseline de que el sitio compila a producción
 2. ~~Confirmar el flujo de Mercado Pago (no hay SDK declarado) para poder testear pagos.~~
    ✅ **Hecho (2026-10-14):** Checkout Pro implementado y probado; ver
    `docs/MERCADO_PAGO.md` y la sección *Actualización* de arriba.
-3. Cuando `firebase` 13 estable o un `@grpc/grpc-js` parcheado estén disponibles,
-   subir la cadena para cerrar los 5 avisos restantes de audit y re-correr `test:all`.
+3. ~~Cuando `firebase` 13 estable o un `@grpc/grpc-js` parcheado estén disponibles,
+   subir la cadena para cerrar los 5 avisos restantes de audit y re-correr
+   `test:all`.~~ ✅ **Hecho (2026-10-15):** `npm audit` → **0** (override de
+   `@grpc/grpc-js` a 1.13.6, más los parches de `wrangler`/`sharp`/`undici`).
 
 *Nota: el punto 1.1‑3 (gift cards en el Worker) y el punto 1.1‑5 (orden de
 descuentos) y el 1.4 (herramienta actualizada) ya quedaron aplicados y en verde.*
