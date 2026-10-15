@@ -42,9 +42,8 @@
   //   CLOUDINARY_API_SECRET           -> firma de subidas de imagen
   //   MP_ACCESS_TOKEN                 -> cobro con tarjeta (Checkout Pro)
   //   MP_WEBHOOK_SECRET               -> firma del webhook de MP (/mp/webhook)
-  //   MP_WEBHOOK_SECRET_PRUEBA        -> firma del modo prueba (opcional; MP
-  //                                      firma distinto según el modo)
-  //
+  //   (En el código todavía se acepta un MP_WEBHOOK_SECRET_PRUEBA opcional
+  //    para el modo de prueba de MP, pero hoy no hay ninguno cargado.)
   // Webhook de MP: la firma del aviso es una señal fuerte, pero la fuente de
   // verdad es MP (se relee el pago y se compara el monto con el total del
   // pedido). Por eso, si la firma no coincide, NO se pierde el pedido: se
