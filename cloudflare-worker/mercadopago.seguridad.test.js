@@ -90,6 +90,31 @@ describe("createOrder — Mercado Pago", () => {
     expect(json.paymentUrl).toBeTruthy();
   });
 
+  it("en modo prueba manda al sandbox_init_point (no al checkout de producción)", async () => {
+    // Con credenciales de prueba, MP devuelve las dos urls. Si el sitio
+    // redirige al init_point (producción), esa página no conoce la
+    // preferencia de prueba y el pago queda muerto. Con MP_MODO_PRUEBA=1
+    // tiene que elegir el sandbox.
+    const { status, json } = await pedir(
+      worker,
+      { ...PEDIDO_BASE, payMethod: "debito" },
+      { env: { MP_ACCESS_TOKEN: "test_token", MP_MODO_PRUEBA: "1" } }
+    );
+    expect(status).toBe(200);
+    expect(json.paymentUrl).toContain("sandbox.");
+  });
+
+  it("sin el flag de modo prueba sigue usando el init_point de producción", async () => {
+    const { status, json } = await pedir(
+      worker,
+      { ...PEDIDO_BASE, payMethod: "debito" },
+      { env: { MP_ACCESS_TOKEN: "test_token" } }
+    );
+    expect(status).toBe(200);
+    expect(json.paymentUrl).toContain("www.mercadopago");
+    expect(json.paymentUrl).not.toContain("sandbox.");
+  });
+
   it("no devuelve paymentUrl con transferencia (no usa MP)", async () => {
     const { status, json } = await pedir(
       worker,

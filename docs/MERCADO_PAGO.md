@@ -113,9 +113,26 @@ menos a más completa:
    (`mercadopago.seguridad.test.js`) con un Firestore y una API de MP falsos.
 3. **El flujo completo (pago aprobado → `paid`)** de verdad solo se prueba con
    un pago. Sin gastar plata: **usuarios de prueba + tarjetas de prueba** de MP
-   (panel → Cuentas de prueba). Requiere usar por un rato el **Access Token del
-   usuario de prueba** en el Worker (`wrangler secret put MP_ACCESS_TOKEN`) y
-   después **volver a poner el de producción**.
+   (panel → Cuentas de prueba). Requiere usar por un rato el **Access Token de
+   prueba** en el Worker (`wrangler secret put MP_ACCESS_TOKEN`) y después
+   **volver a poner el de producción**.
+
+   Ojo con dos detalles que hacen fallar la prueba:
+
+   - **Hay que usar el `sandbox_init_point`**, no el `init_point`: con
+     credenciales de prueba MP devuelve las dos urls y el `init_point` abre el
+     checkout de *producción*, que no conoce la preferencia de prueba (el botón
+     de pago queda muerto). Por eso está el flag `MP_MODO_PRUEBA=1`
+     (`wrangler secret put MP_MODO_PRUEBA`): mientras esté puesto, el Worker
+     manda al sandbox. **Borrarlo al volver a producción.**
+   - **El prefijo del token no distingue prueba de producción**: en Checkout Pro
+     la cuenta de prueba vendedora se crea sola con la app y su token también
+     empieza con `APP_USR-`. Guiarse por la pestaña del panel ("Credenciales de
+     prueba" vs "Credenciales de producción").
+
+   Y aparte del botón gris de "auto-compra" (abajo), hay que pagar **logueado
+   como el usuario comprador de prueba** (el que se crea a mano en el panel,
+   ver "Tu parte" punto 3), en una ventana de incógnito.
 
 ## Tu parte (lo que sólo se puede hacer desde el panel)
 
@@ -153,12 +170,12 @@ Worker:
 npx wrangler secret put MP_ACCESS_TOKEN
 ```
 
-**4. Configurar el webhook** para que MP avise cada pago. En **Tus
-aplicaciones → tu aplicación → Webhooks / Notificaciones**:
-
-- URL: `https://cloudflare-worker.skullt.workers.dev/mp/webhook`
-- Evento: **Pagos** (payment).
-- Copiar la **clave secreta** que muestra el panel y cargarla:
+**4. ✅ Configurar el webhook (hecho y verificado).** MP ya avisa cada pago a
+`https://cloudflare-worker.skullt.workers.dev/mp/webhook` (evento **Pagos**) y
+la firma valida: llegó un aviso real de un pago y el Worker lo procesó sin
+quejarse de la firma. Por si hay que rehacerlo: **Tus aplicaciones → tu
+aplicación → Webhooks / Notificaciones**, copiar la **clave secreta** del panel
+y cargarla con:
 
 ```bash
 npx wrangler secret put MP_WEBHOOK_SECRET
@@ -178,6 +195,19 @@ que `/orders` quedó con `paymentStatus: "paid"`.
 prueba que vale: comprar con tarjeta, ver que te lleva a MP, que al volver la
 orden queda `paid` y que llega el aviso por Telegram. Si algo falla, el log del
 Worker (`npx wrangler tail`) muestra por qué.
+
+⚠️ **El botón "Pagar" de MP queda gris si el comprador es el vendedor.** No es
+un problema del sitio: MP lo trata como "auto-compra" (posible fraude) y
+deshabilita el pago. [Ayuda oficial de
+MP](https://www.mercadopago.com.ar/ayuda/probar-checkout-boton-pago-desactivado_48609):
+*"El botón de pago está desactivado porque estás usando la misma cuenta para
+cobrar y realizar el pago"*. Dos formas de destrabarlo:
+
+- que pague **otra persona** (otro DNI/CUIT), desde **otro navegador o en
+  incógnito** para que MP no vea la sesión del vendedor. Ojo: **no alcanza con
+  otra cuenta de MP si está a tu mismo DNI** — también la bloquea; o
+- pagar en el **entorno de prueba** (acá arriba, con `MP_MODO_PRUEBA=1` y el
+  usuario comprador de prueba).
 
 **7. Si querés cambiar reglas de negocio** (envío gratis desde, cuotas "Ahora
 12", comisiones): el umbral de envío gratis vive en el código

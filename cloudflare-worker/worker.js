@@ -1624,7 +1624,18 @@ async function handleCreateOrder(body, env, cors, request) {
         orderPhone: pedido.orderPhone,
         notificationUrl,
       });
-      paymentUrl = pref.init_point || pref.sandbox_init_point || null;
+
+      // Con credenciales de prueba MP devuelve DOS urls: `init_point` (el
+      // checkout de producción, que NO conoce una preferencia de prueba y
+      // deja el botón de pago muerto) y `sandbox_init_point` (el checkout
+      // de prueba). Por eso, en modo prueba hay que redirigir al sandbox.
+      // El flag MP_MODO_PRUEBA es explícito porque el prefijo del token ya
+      // no distingue: las credenciales de prueba de Checkout Pro también
+      // empiezan con "APP_USR-".
+      const modoPrueba = env.MP_MODO_PRUEBA === "1";
+      paymentUrl = modoPrueba
+        ? pref.sandbox_init_point || pref.init_point || null
+        : pref.init_point || pref.sandbox_init_point || null;
     } catch (err) {
       console.error("[createOrder] No se pudo crear preferencia de Mercado Pago:", err?.message || err);
     }
