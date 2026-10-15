@@ -10,8 +10,10 @@ El proyecto está preparado para que cualquiera pueda tomar la estructura, adapt
 
 - **Frontend:** React 18 con Vite como empaquetador y servidor de desarrollo.
 - **Estilos:** CSS3 nativo mediante un sistema de variables globales (`src/styles/storefront.css` y `global.css`), layouts responsivos con Flexbox/Grid, sombras compuestas y efectos de desenfoque (*glassmorphism*).
-- **Base de datos y backend serverless:** Firestore Database para la persistencia del catálogo, cupones, tarjetas de regalo y compras.
+- **Base de datos:** Firestore Database para la persistencia del catálogo, cupones, tarjetas de regalo, pedidos y suscripciones.
+- **Backend serverless (Cloudflare Worker):** un Worker guarda los secretos y hace lo que el navegador no puede: cobra con **Mercado Pago** (Checkout Pro + webhook que re-verifica el pago contra la API), cotiza el envío contra la API de **MiCorreo** (Correo Argentino), firma las subidas de imágenes a **Cloudinary** y avisa cada pedido por **Telegram**. Ver `cloudflare-worker/README.md` y `docs/MERCADO_PAGO.md`.
 - **Autenticación:** Firebase Authentication (Email y contraseña) para el control de acceso exclusivo al panel de administración.
+- **Seguridad:** el navegador no decide nada —precios, descuentos, stock y saldos de gift cards los recalcula el Worker— y las reglas de Firestore (`firestore.rules`) deciden quién lee y quién escribe, del lado de Google.
 - **Optimizaciones:** Compresión automática de imágenes cargadas en el cliente para reducir el peso de las lecturas en Firestore y soporte de animaciones adaptadas a la preferencia del usuario (`prefers-reduced-motion`).
 
 ---
@@ -40,7 +42,32 @@ Acceso protegido por credenciales de Firebase Auth que permite gestionar la tien
 
 ---
 
+## Pruebas
+
+Se prueba en cuatro niveles, por separado, porque ninguno puede confiar en el otro:
+
+- **Sitio (React):** **430** pruebas de componentes, hooks y utilidades (`npm run test:web`).
+- **Worker:** **196** pruebas de precios, descuentos, stock, rate limit y webhook (`npm run test:worker`).
+- **Reglas de Firestore:** **42** checks contra el emulador, sin tocar producción (`npm run test:rules`).
+- **End-to-end en un navegador real:** Playwright + Axe sobre el build, las rutas, el carrito y la accesibilidad (`npm run test:e2e`).
+
+`npm run test:all` corre las tres primeras suites más el build; `npm run test:full` agrega el E2E. El detalle de qué se encontró y qué cubre cada suite está en `REPORTE-SEGURIDAD.md`.
+
+---
+
 ## Estructura detallada de archivos
+
+Además del sitio (que vive en `src/`):
+
+```text
+cloudflare-worker/   # backend serverless: Mercado Pago, MiCorreo, Telegram y firma de Cloudinary
+docs/                # guías y checklist de Mercado Pago
+e2e/                 # pruebas end-to-end con Playwright + Axe
+scripts/             # seed de productos y runner de las pruebas de reglas
+public/              # estáticos (favicon, og-image, robots, sitemap, editoriales)
+```
+
+Y adentro de `src/`:
 
 ```text
 src/
@@ -81,3 +108,13 @@ src/
     ├── AdminLogin.jsx       # Formulario de acceso al panel
     ├── AdminApp.jsx         # Selector entre login y panel según el estado de la sesión
     └── AdminPanel.jsx       # Interfaz de gestión dividida en pestañas
+```
+
+---
+
+## Licencia
+
+El código es de **Juligb-dev / SKUL**. Está publicado para que se pueda leer y
+tomar como referencia, pero **no tiene una licencia de reuso**: si te sirve la
+estructura para tu propio proyecto, escribime primero. (La marca SKUL, las fotos
+y los textos tampoco son de uso libre.)

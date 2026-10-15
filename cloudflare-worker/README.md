@@ -59,8 +59,9 @@ Cloudflare). Nunca vuelve al código.
    - Valor: el token nuevo que te dio BotFather en el Paso 0.
 3. Agregá otra variable, esta puede ser texto plano:
    - Nombre: `TELEGRAM_CHAT_ID`
-   - Valor: `1065255342` (o el chat id que corresponda — es el mismo
-     que ya tenías configurado).
+   - Valor: tu chat id (el número de tu conversación con el bot; lo ves
+     en `https://api.telegram.org/bot<TOKEN>/getUpdates` después de
+     escribirle al bot).
 4. Guardá.
 
 ## Paso 4 — Copiar la URL del Worker

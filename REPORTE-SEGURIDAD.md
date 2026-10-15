@@ -6,16 +6,15 @@
 
 ---
 
-## Actualización (2026-10-14)
+## Actualización (2026-10-15)
 
 Este informe es la **foto de la auditoría del 06/10/2026**: lo de abajo queda como
 registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run test:all`:
 
-- **Suite:** **420 tests web + 189 tests Worker + 42 checks de reglas**, build OK
-  (0 fallas).
-- **Cobertura web:** **85.95% sentencias / 81.56% funciones / 76.59% ramas /
-  89.61% líneas** (sigue muy por encima de los thresholds 60/60/50/60; la rama
-  bajó un punto porque el SDK de Auth ahora se carga por demanda, ver abajo).
+- **Suite:** **430 tests web + 196 tests Worker + 42 checks de reglas**, build OK
+  (0 fallas). Más el E2E real en navegador (`npm run test:e2e`, Playwright + Axe).
+- **Cobertura web:** **85.79% sentencias / 81.19% funciones / 76.86% ramas /
+  89.52% líneas** (sigue muy por encima de los thresholds 60/60/50/60).
 - **Bundle:** se hizo *code‑splitting*. El visitante de la tienda abierta baja
   **~247 kB gzip de JavaScript** (antes ~269 kB) y el SDK de Firebase Auth
   (**39 kB gzip**) ya **no** viaja en la carga inicial: se descarga solo al
@@ -28,8 +27,16 @@ registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run tes
   el aviso: relee el pago real de MP, compara contra el total recalculado en el
   Worker y, si la firma no coincide, **igual procesa** cuando el pago está
   aprobado y el monto coincide (red de seguridad). El modo estricto (401 ante
-  firma inválida) se activa con `MP_WEBHOOK_FIRMA_ESTRICTA="1"`.
-- **Siguiente paso #1** de abajo (Playwright + Axe para E2E/a11y) sigue pendiente.
+  firma inválida) se activa con `MP_WEBHOOK_FIRMA_ESTRICTA="1"`. Para probar sin
+  gastar plata hay un modo sandbox explícito (`MP_MODO_PRUEBA="1"`, que manda al
+  `sandbox_init_point`).
+- **Shop the Look / MiCorreo:** la cotización de Correo Argentino ahora cachea el
+  token, reintenta ante 5xx/cortes y lo renueva ante un 401/403 (MiCorreo venía
+  devolviendo `520` en una de cada tres llamadas).
+- **Repo (2026-10-15):** se activaron en GitHub las **alertas de Dependabot**,
+  las **actualizaciones de seguridad** y el **secret scanning con push
+  protection** (en un repo público es gratis y frena que se commitee una
+  credencial).
 
 ---
 
@@ -113,11 +120,12 @@ SDK de Firestore web usa su propio transporte, no ese módulo.
 
 ### 1.5 Puntos ciegos que quedaron fuera del alcance automático
 
-- **Playwright/E2E sobre navegador real y Axe (a11y)**: no instalados en esta pasada. Se
-  sustituyeron con pruebas de componentes + jsdom (roles, `aria-live`, `aria-label`,
-  deshabilitados). Ver *Siguientes pasos*.
-- **Mercado Pago**: no hay SDK en `package.json`. El flujo de pago real (redirect/token) hay
-  que confirmarlo con el cliente antes de poder probar pagos de verdad.
+- **Playwright/E2E sobre navegador real y Axe (a11y)**: ~~no instalados en esta
+  pasada~~ — **ya instalados** (ver *Actualización*, 2026-10-15). Este archivo
+  de abajo queda como registro del día.
+- **Mercado Pago**: ~~no hay SDK en `package.json`~~ — **ya integrado** (Checkout
+  Pro + webhook, ver `docs/MERCADO_PAGO.md`). No hace falta SDK de npm: el
+  checkout propio redirige al de MP.
 - **Bundle grande**: el build emite `index…js` de **1.024 kB (269 kB gzip)**. No es un bug de
   seguridad, pero conviene code‑splitting por rutas.
 - **Trabajo documentado**: una vez alineado el punto 1.1‑3 (normalización de gift cards en el
@@ -236,7 +244,9 @@ npm run build       # baseline de que el sitio compila a producción
 
 ### Siguientes pasos recomendados
 
-1. Playwright + Axe para E2E/a11y sobre navegador real (esta pasada usó jsdom + componentes).
+1. ~~Playwright + Axe para E2E/a11y sobre navegador real (esta pasada usó jsdom +
+   componentes).~~ ✅ **Hecho (2026-10-15):** Playwright + Axe implementados
+   (`npm run test:e2e`; config en `playwright.config.js` y specs en `e2e/`).
 2. ~~Confirmar el flujo de Mercado Pago (no hay SDK declarado) para poder testear pagos.~~
    ✅ **Hecho (2026-10-14):** Checkout Pro implementado y probado; ver
    `docs/MERCADO_PAGO.md` y la sección *Actualización* de arriba.
