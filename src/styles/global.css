@@ -392,7 +392,10 @@ input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px s
    otros valores: 10s en vez de 26s, porque acá el texto es más chico. */
 .intro-curtain-marquee {
   position: absolute; bottom: 24px; left: 0; width: 200%; z-index: 2;
-  display: flex; white-space: nowrap; color: var(--grey-3); font-size: 10.5px;
+  /* La cinta va sobre el panel negro (#111): --grey-3 (#6b6965) daba 3.4:1
+     y Axe lo marcaba. --grey-2 pasa 4.5:1 y sigue viéndose como un detalle
+     discreto. */
+  display: flex; white-space: nowrap; color: var(--grey-2); font-size: 10.5px;
   animation: marquee 10s linear infinite;
   transition: opacity .3s ease;
 }
@@ -1641,7 +1644,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .rotten-footer { background: var(--black); color: var(--white); border-top: 1px solid var(--black); }
 .rotten-footer-grid { max-width: 1240px; margin: 0 auto; padding: 56px 20px 30px; display: grid; grid-template-columns: 1.3fr 1fr 1fr 1fr; gap: 34px; }
 .rotten-footer-grid h4 { font: 10px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--grey-2); margin: 0 0 14px; font-weight: 600; }
-.rotten-footer-grid p { font-size: 13px; color: var(--grey-1); margin: 0 0 16px; max-width: 300px; }
+.rotten-footer-grid p { font-size: 13px; color: var(--muted); margin: 0 0 16px; max-width: 300px; }
 .rotten-footer-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .rotten-footer-links button, .rotten-footer-links a { background: none; border: none; color: var(--grey-1); font-size: 13px; text-align: left; padding: 0; }
 .rotten-footer-links button:hover, .rotten-footer-links a:hover { color: var(--white); }
@@ -1656,7 +1659,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .rotten-newsletter-form-wrap { max-width: 300px; }
 .rotten-privacy-check { display: flex; align-items: flex-start; gap: 8px; font-size: 10.5px; color: var(--grey-2); margin-top: 10px; cursor: pointer; }
 .rotten-privacy-check input { margin-top: 2px; }
-.rotten-footer-bottom { border-top: 1px solid #2a2a28; margin-top: 20px; padding: 14px 20px; text-align: center; font-size: 10.5px; opacity: .5; }
+/* El pie es CLARO (storefront.css le pone --bg): `opacity: .5` era del pie
+   negro viejo y dejaba el copyright casi invisible (#abaaa8 sobre #eaeaea =
+   1.9:1). El color ya lo pone storefront.css con --muted (4.55:1). */
+.rotten-footer-bottom { border-top: 1px solid #2a2a28; margin-top: 20px; padding: 14px 20px; text-align: center; font-size: 10.5px; }
 @media (max-width: 780px) { .rotten-footer-grid { grid-template-columns: 1fr 1fr; padding: 40px 18px 20px; } }
 
 

@@ -2165,7 +2165,7 @@ function SuscriptoresTab() {
 
   return (
     <div style={{ display: "grid", gap: 22 }}>
-      <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--grey-2)", margin: 0 }}>
+      <p style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--muted)", margin: 0 }}>
         Estas son las personas que dieron consentimiento para recibir novedades por mail. Solo se guarda
         el correo, la fecha y de qué parte del sitio se suscribieron. No hay datos de pedidos ni de pagos acá.
       </p>

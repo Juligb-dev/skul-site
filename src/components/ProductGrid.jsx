@@ -81,10 +81,22 @@ export default function ProductGrid({ products, openProduct, nrs, addToCart, rai
         // No-Restock, la imagen principal y la secundaria (la que se
         // ve al pasar el mouse, montada siempre para que no tarde en
         // cargar), o la tela sintética si no hay fotos.
+        //
+        // Las pastillas de estado, en este orden: "SIN STOCK" si no queda
+        // ningún talle, "EXCLUSIVE" en No-Restock, y si no la etiqueta
+        // propia del producto (SALE, NUEVO...). El texto de las pastillas va
+        // TAMBIÉN en el nombre accesible del <a> (más abajo): si no, Axe
+        // marca WCAG 2.5.3, porque el visitante ve "SALE" sobre la foto y el
+        // nombre del enlace no lo decía.
+        const etiquetas = [
+          soldOut ? "SIN STOCK" : null,
+          nrs ? "EXCLUSIVE" : null,
+          !soldOut && !nrs ? p.tag : null,
+        ].filter(Boolean);
         const media = (
           // El <a> tiene href real (para compartir y para SEO) pero le
           // saco el comportamiento por defecto y navego con la app.
-          <a className="rf-product-media" href={`/producto/${p.slug || p.id}`} onClick={(e) => { e.preventDefault(); openProduct(p.id); }} aria-label={`Ver ${p.name}`}>
+          <a className="rf-product-media" href={`/producto/${p.slug || p.id}`} onClick={(e) => { e.preventDefault(); openProduct(p.id); }} aria-label={`Ver ${p.name}${etiquetas.length ? ` — ${etiquetas.join(" ")}` : ""}`}>
             {nrs && <FireEffect />}
             {/* La ?. es optional chaining: si photos no existe, la
                 expresión corta acá y cae al Fabric de abajo. */}
@@ -96,13 +108,19 @@ export default function ProductGrid({ products, openProduct, nrs, addToCart, rai
             ) : (
               <Fabric tone={p.tone} dark={nrs} style={{ width: "100%", height: "100%" }} />
             )}
-            {/* Las pastillas de estado. En No-Restock se prioriza el
-                cartel EXCLUSIVE y no se muestra el resto, para no
-                ensuciar la foto. */}
+            {/* Las pastillas de estado. El espacio suelto entre una y otra es
+                invisible (el contenedor es flex y no dibuja los nodos de
+                texto), pero separa las palabras para quien lee con lector de
+                pantalla y para Axe: sin él, "SIN STOCK" + "EXCLUSIVE" quedan
+                pegadas como una sola palabra y el nombre del enlace deja de
+                contener el texto visible (WCAG 2.5.3). */}
             <div className="rf-product-badges">
-              {soldOut && <span>SIN STOCK</span>}
-              {nrs && <span>EXCLUSIVE</span>}
-              {!soldOut && !nrs && p.tag && <span>{p.tag}</span>}
+              {etiquetas.map((etiqueta, i) => (
+                <React.Fragment key={`${etiqueta}-${i}`}>
+                  {i > 0 && " "}
+                  <span>{etiqueta}</span>
+                </React.Fragment>
+              ))}
             </div>
             <span className="rf-product-arrow"><ArrowUpRight size={16} /></span>
           </a>

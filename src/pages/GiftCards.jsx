@@ -206,7 +206,7 @@ export default function GiftCards({ addGiftCard, giftCardEnCarrito = false }) {
             {/* Título del paso y, si existe, su texto de detalle. */}
             <div>
               <p className="tracked" style={{ fontWeight: 700, fontSize: 14, margin: "0 0 4px" }}>{titulo}</p>
-              <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--grey-2)", margin: 0 }}>{texto}</p>
+              <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--muted)", margin: 0 }}>{texto}</p>
             </div>
           </div>
         ))}
@@ -218,7 +218,7 @@ export default function GiftCards({ addGiftCard, giftCardEnCarrito = false }) {
         {FAQ.map(([q, a]) => (
           <div key={q} style={{ borderTop: "1px solid var(--grey-1)", paddingTop: 12 }}>
             <p style={{ fontWeight: 700, fontSize: 13.5, margin: "0 0 5px" }}>{q}</p>
-            <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--grey-2)", margin: 0 }}>{a}</p>
+            <p style={{ fontSize: 13.5, lineHeight: 1.65, color: "var(--muted)", margin: 0 }}>{a}</p>
           </div>
         ))}
       </section>

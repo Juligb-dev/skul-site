@@ -95,13 +95,13 @@ export default function Footer({ nav, goCatalog }) {
               <p className="mono tracked" style={{ fontSize: 12 }}>
                 {estado === "repetido" ? "Ese correo ya estaba en la lista" : "¡Listo, ya estás en la lista!"}
               </p>
-              <p style={{ fontSize: 12.5, color: "var(--grey-1)" }}>
+              <p style={{ fontSize: 12.5, color: "var(--muted)" }}>
                 Te avisamos por mail cuando hay un drop o una promoción.
               </p>
               <button
                 onClick={() => setEstado("idle")}
                 className="rotten-newsletter-again"
-                style={{ marginTop: 10, background: "none", border: 0, color: "#fff", textDecoration: "underline", fontSize: 11, cursor: "pointer" }}
+                style={{ marginTop: 10, background: "none", border: 0, color: "var(--ink)", textDecoration: "underline", fontSize: 11, cursor: "pointer" }}
               >
                 Suscribir otro correo
               </button>
@@ -142,9 +142,9 @@ export default function Footer({ nav, goCatalog }) {
                 Quiero recibir novedades, lanzamientos y promociones de SKUL
               </label>
 
-              <p style={{ fontSize: 11.5, color: "var(--grey-1)", margin: "8px 0 0" }}>
+              <p style={{ fontSize: 11.5, color: "var(--muted)", margin: "8px 0 0" }}>
                 Al suscribirte declarás haber leído la{" "}
-                <button onClick={() => nav("privacidad")} style={{ background: "none", border: 0, padding: 0, color: "#fff", textDecoration: "underline", cursor: "pointer", font: "inherit" }}>
+                <button onClick={() => nav("privacidad")} style={{ background: "none", border: 0, padding: 0, color: "var(--ink)", textDecoration: "underline", cursor: "pointer", font: "inherit" }}>
                   Política de Privacidad
                 </button>
                 . Podés pedir la baja cuando quieras.
@@ -155,12 +155,12 @@ export default function Footer({ nav, goCatalog }) {
                 <p className="mono tracked" style={{ fontSize: 11, margin: "8px 0 0" }}>Guardando…</p>
               )}
               {estado === "invalido" && (
-                <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#ffb4a2" }}>
+                <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#a3341f" }}>
                   Ese correo no parece un correo. Revisalo y volvé a intentar.
                 </p>
               )}
               {estado === "error" && (
-                <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#ffb4a2" }}>
+                <p style={{ fontSize: 11.5, margin: "8px 0 0", color: "#a3341f" }}>
                   No pudimos guardarlo. Probá de nuevo o escribinos por WhatsApp.
                 </p>
               )}

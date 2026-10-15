@@ -418,8 +418,11 @@
   text-decoration: underline;
   text-underline-offset: 4px;  /* despega el subrayado de la letra */
 }
-/* fuera del home la fila va en tinta, no en blanco */
-.skul-root:not(.page-home) .rotten-cat-strip button { color: var(--muted); }
+/* Fuera del home la fila va en tinta, no en blanco.
+   --ink-soft (#4b4b4b) y no --muted: la barra del header es blanca al 74%
+   sobre el header negro, así que el fondo real del riel es #c1c1c1, y ahí
+   --muted (#6b6965) daba 3.04:1 (Axe lo marcaba en casi todas las rutas). */
+.skul-root:not(.page-home) .rotten-cat-strip button { color: var(--ink-soft); }
 .skul-root:not(.page-home) .rotten-cat-strip button:hover,
 .skul-root:not(.page-home) .rotten-cat-strip button.is-active { color: var(--ink); }
 
@@ -614,8 +617,12 @@
   min-height: 46px;      /* alto mínimo = área táctil cómoda */
   padding: 0 26px;
   border-radius: var(--radius-control);
-  border: 1px solid rgba(255, 255, 255, .38);
-  background: rgba(255, 255, 255, .16);
+  /* Fondo oscuro semitransparente y no el vidrio blanco de antes: sobre la
+     foto, el texto blanco daba 3.3:1. Así pasa 4.5:1 y el efecto de vidrio
+     se mantiene por el blur y el borde. El primer botón (el principal) se
+     pinta blanco sólido un poco más abajo. */
+  border: 1px solid rgba(255, 255, 255, .62);
+  background: rgba(0, 0, 0, .48);
   color: #fff;
   font-size: 11px;
   font-weight: 600;
@@ -632,7 +639,7 @@
   color: var(--ink);
   border-color: #fff;
 }
-.rotten-hero-actions button:first-child:hover { background: rgba(255, 255, 255, .86); }
+.rotten-hero-actions button:first-child:hover { background: rgba(255, 255, 255, .9); }
 /* El secundario se invierte al pasar el mouse: pasa a blanco. */
 .rotten-hero-actions button:hover { background: #fff; color: var(--ink); border-color: #fff; }
 
@@ -2584,7 +2591,14 @@
   inset: 0;
   background: linear-gradient(180deg, rgba(10, 10, 10, .1), rgba(10, 10, 10, .78));
 }
-.rf-home-nrs-lock {
+/* El cartel "BLOQUEADO" de cada silueta. Va como contenido de CSS (y no
+   como texto en el DOM) por accesibilidad: si fuera texto, Axe exige que el
+   nombre accesible del botón lo contenga (WCAG 2.5.3) y son cuatro carteles
+   repetidos. Es decoración: el botón ya se llama "Entrar al drop No-Restock".
+   Ojo: por eso mismo, si algún día esto pasa a decir algo importante, tiene
+   que volver al JSX con su nombre accesible. */
+.rf-home-nrs-slot::before {
+  content: "BLOQUEADO";
   position: absolute;
   inset: auto 0 16px;
   z-index: 2;

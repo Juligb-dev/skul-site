@@ -225,7 +225,10 @@ describe("StoreApp", () => {
 
     // ...y después entro a la ficha y agrego el mismo talle de nuevo:
     // la key es la misma (producto+talle), así que la línea sube a 2.
-    fireEvent.click(screen.getByLabelText("Ver Hoodie Concrete"));
+    // El nombre del enlace arranca con "Ver <producto>" y sigue con la
+    // etiqueta de la prenda ("SS26 / 01"), que va sobre la foto: por eso
+    // se busca por prefijo y no por el texto exacto.
+    fireEvent.click(screen.getByLabelText(/^Ver Hoodie Concrete/));
     expect(await screen.findByText("SELECCIONAR TALLE")).toBeInTheDocument();
 
     const talleM = [...document.querySelectorAll(".rf-pdp-sizes button")].find((b) => b.textContent === "M");
@@ -238,7 +241,9 @@ describe("StoreApp", () => {
   it("abrir el carrito vacío desde la cabecera muestra el estado vacío", async () => {
     render(<StoreApp />);
     await screen.findByText(/hoodie concrete/i);
-    fireEvent.click(screen.getByLabelText("Abrir carrito"));
+    // El nombre accesible ahora incluye la cantidad ("Abrir carrito, 0
+    // artículos"), así que se busca por expresión regular.
+    fireEvent.click(screen.getByLabelText(/^Abrir carrito/));
     expect(await screen.findByText("Todavía no agregaste nada.")).toBeInTheDocument();
   });
 

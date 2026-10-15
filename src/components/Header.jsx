@@ -165,7 +165,11 @@ export default function Header({ nav, goCatalog, itemCount, setCartOpen, menuOpe
             <button
               className="rotten-shop-toggle"
               onClick={() => (menuOpen ? close() : setMenuOpen(true))}
-              aria-label={menuOpen ? "Cerrar menú" : "Abrir menú"}
+              // El nombre accesible incluye el texto que se ve ("SHOP" /
+              // "CERRAR"): si no, Axe marca "label-content-name-mismatch"
+              // (WCAG 2.5.3) porque lo que se lee no coincide con lo que
+              // dice el botón en pantalla.
+              aria-label={menuOpen ? "CERRAR — cerrar el menú" : "SHOP — abrir el menú"}
               aria-expanded={menuOpen}
             >
               <span className="rotten-shop-icon">{menuOpen ? <X size={20} /> : <Menu size={20} />}</span>
@@ -181,10 +185,18 @@ export default function Header({ nav, goCatalog, itemCount, setCartOpen, menuOpe
                 para que la barra no cambie de ancho cuando sumen el
                 servicio. */}
             <button className="rotten-account" aria-label="Mi cuenta" disabled style={{opacity:.4,cursor:"not-allowed"}}><UserRound size={18} /></button>
-            <button className="rotten-cart" aria-label="Abrir carrito" onClick={() => setCartOpen(true)}>
+            {/* El nombre accesible lleva la cantidad: el numerito que se ve
+                queda aria-hidden para que un lector de pantalla no lea un
+                "3" suelto, y así el nombre (que ya incluye el número)
+                coincide con lo que se ve (WCAG 2.5.3). */}
+            <button
+              className="rotten-cart"
+              aria-label={itemCount === 1 ? "Abrir carrito, 1 artículo" : `Abrir carrito, ${itemCount} artículos`}
+              onClick={() => setCartOpen(true)}
+            >
               {/* El número vive acá y no en la página, así está
                   siempre visible aunque el carrito esté cerrado. */}
-              <ShoppingBag size={19} /> <span>{itemCount}</span>
+              <ShoppingBag size={19} /> <span aria-hidden="true">{itemCount}</span>
             </button>
           </div>
         </div>

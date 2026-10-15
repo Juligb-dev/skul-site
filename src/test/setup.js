@@ -38,8 +38,20 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { vi, beforeEach, afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { __fs } from "./mocks/firestore.js";
+
+/* ------------------------------------------------------------------
+ * 0) Cuánto esperan los `findBy*` / `waitFor`
+ * ------------------------------------------------------------------
+ * Testing Library espera 1000 ms por defecto a que aparezca algo. Con la
+ * máquina cargada (por ejemplo, la corrida que viene justo después de las
+ * pruebas del Worker o del emulador de Firestore) una promesa puede tardar
+ * más y el test falla por reloj, no por lógica: pasó una vez en
+ * `useProducts`. Subimos el margen a 3 s; el corte de verdad, el que
+ * detecta un cuelgue, sigue siendo `testTimeout` (15 s, vitest.config.js).
+ */
+configure({ asyncUtilTimeout: 3000 });
 
 /* ------------------------------------------------------------------
  * 1) Estado de la sesión simulada

@@ -87,7 +87,7 @@ export default function Home({ goCatalog, nav, status, products = [], nrsProduct
   const heroSrc = useMobileHero ? mobileHero : status?.heroImage;
 
   return (
-    <main className="rotten-home">
+    <div className="rotten-home">
       {/* --- 1) HERO: la foto de campaña a pantalla completa --- */}
       <section className="rotten-hero">
         {/* Relleno: la misma foto ampliada y borrosa detrás. En el celular la
@@ -171,13 +171,18 @@ export default function Home({ goCatalog, nav, status, products = [], nrsProduct
                 y se pierde el efecto de vidriera. Donde el dueño no
                 cargó foto, cae a la textura de tela para no romper
                 la retícula. */}
+            {/* El botón es una vidriera decorativa: las siluetas van sin alt
+                y el cartel "BLOQUEADO" se dibuja desde el CSS (.rf-home-nrs-slot
+                ::before), no como texto del DOM. Motivo: si el texto estuviera
+                en el DOM, Axe exige (WCAG 2.5.3) que el nombre accesible lo
+                contenga, y acá son cuatro repetidos. El significado real lo
+                lleva el aria-label; el nombre del cartel es adorno. */}
             <button className="rf-home-nrs-veil" onClick={() => nav("noreastock")} aria-label="Entrar al drop No-Restock">
               {nrsProducts.slice(0, 4).map((p) => (
                 <span className="rf-home-nrs-slot" key={p.id}>
                   {p.photos?.[0]
                     ? <img src={p.photos[0]} alt="" className="rf-home-nrs-thumb" />
                     : <Fabric tone={p.tone} dark style={{ width: "100%", height: "100%" }} />}
-                  <span className="rf-home-nrs-lock">BLOQUEADO</span>
                 </span>
               ))}
             </button>
@@ -206,6 +211,6 @@ export default function Home({ goCatalog, nav, status, products = [], nrsProduct
           goCatalog={goCatalog}
         />
       </div>
-    </main>
+    </div>
   );
 }
