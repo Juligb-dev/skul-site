@@ -1646,25 +1646,71 @@ async function handleCreateOrder(body, env, cors, request) {
 /* ============================================================
    MiCorreo — autenticación
    ------------------------------------------------------------
-   Pide un token nuevo en cada request. Para el volumen de una
-   tienda chica esto es más que suficiente y evita el lío de
-   guardar el token en algún lado (KV) y manejar su vencimiento.
-   ------------------------------------------------------------
+   Autenticarse contra MiCorreo cuesta un POST /token y el token
+   dura un rato largo. Antes pedíamos uno nuevo en CADA cotización
+   (y el checkout cotiza varias veces mientras el cliente escribe el
+   CP). Con MiCorreo intermitente (devolvía 520 en el /token), cada
+   una de esas cotizaciones terminaba en 502 y el cliente veía "no
+   cotiza el envío". Ahora:
+     - guardamos el token en memoria del isolate (TTL corto por las
+       dudas) y lo reusamos,
+     - si el /token igual falla, reintentamos (502/503/520 son
+       transitorios de ellos, no nuestros),
+     - un 4xx (credenciales mal) NO se reintenta: eso no se arregla
+       insistiendo.
    El token va como cabecera "Authorization: Basic ..." con el usuario y la
    contraseña en base64; no es lo mismo que el Bearer que usan las otras APIs.
    ============================================================ */
+
+// TTL conservador: el token de MiCorreo dura más, pero preferimos pedir
+// otro de vez en cuando antes que quedarnos con uno vencido. Si igual nos
+// lo rechazan, cotizarCorreo lo tira y pide uno nuevo.
+const TTL_TOKEN_CORREO_MS = 10 * 60 * 1000;
+let cachedCorreoToken = null; // { token, expiraEn }
+
 async function getCorreoToken(env) {
+  const ahora = Date.now();
+  if (cachedCorreoToken && cachedCorreoToken.expiraEn > ahora) {
+    return cachedCorreoToken.token;
+  }
+
   const base = env.CORREO_BASE_URL; // API de producción (va en wrangler.jsonc)
   const auth = btoa(`${env.CORREO_USER}:${env.CORREO_PASSWORD}`);
-  const res = await fetch(`${base}/token`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!res.ok) {
-    throw new Error(`No se pudo autenticar con MiCorreo (${res.status})`);
+
+  let ultimoError = null;
+  for (let intento = 1; intento <= 3; intento++) {
+    let res = null;
+    try {
+      res = await fetch(`${base}/token`, {
+        method: "POST",
+        headers: { Authorization: `Basic ${auth}` },
+      });
+    } catch (err) {
+      // Se cortó la conexión (o MiCorreo no contestó): transitorio.
+      ultimoError = err;
+    }
+
+    if (res) {
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.token) {
+          cachedCorreoToken = { token: data.token, expiraEn: Date.now() + TTL_TOKEN_CORREO_MS };
+          return data.token;
+        }
+        ultimoError = new Error("MiCorreo no devolvió token");
+      } else {
+        ultimoError = new Error(`No se pudo autenticar con MiCorreo (${res.status})`);
+        // 4xx: el usuario o la clave están mal. Reintentar no lo arregla.
+        if (res.status < 500) throw ultimoError;
+      }
+    }
+
+    if (intento < 3) await new Promise((listo) => setTimeout(listo, 250 * intento));
   }
-  const data = await res.json();
-  return data.token;
+
+  // Nos quedamos con el ÚLTIMO error: si veníamos de un 520, el mensaje del
+  // log dice 520 y no otra cosa.
+  throw ultimoError || new Error("No se pudo autenticar con MiCorreo");
 }
 
 /* ============================================================
@@ -1728,24 +1774,41 @@ async function cotizarCorreo(env, postalCodeDestination, pesoGramos) {
   }
 
   try {
-    const res = await fetch(`${env.CORREO_BASE_URL}/rates`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        // MiCorreo pide tres cosas: el token, el número de cliente y el CP
-        // de salida. El número de cliente NO es el usuario ni la contraseña:
-        // es el "ID de cliente" que figura arriba a la izquierda del panel
-        // de MiCorreo (con los ceros adelante).
-        customerId: env.CORREO_CUSTOMER_ID,
-        postalCodeOrigin: env.CORREO_ORIGIN_POSTAL_CODE,
-        postalCodeDestination: String(postalCodeDestination || ""),
-        // sin deliveredType: pedimos las dos cotizaciones (domicilio y sucursal) juntas
-        dimensions: medidas,
-      }),
-    });
+    const pedirRates = (unToken) =>
+      fetch(`${env.CORREO_BASE_URL}/rates`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${unToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          // MiCorreo pide tres cosas: el token, el número de cliente y el CP
+          // de salida. El número de cliente NO es el usuario ni la contraseña:
+          // es el "ID de cliente" que figura arriba a la izquierda del panel
+          // de MiCorreo (con los ceros adelante).
+          customerId: env.CORREO_CUSTOMER_ID,
+          postalCodeOrigin: env.CORREO_ORIGIN_POSTAL_CODE,
+          postalCodeDestination: String(postalCodeDestination || ""),
+          // sin deliveredType: pedimos las dos cotizaciones (domicilio y sucursal) juntas
+          dimensions: medidas,
+        }),
+      });
+
+    let res = await pedirRates(token);
+
+    // El token cacheado puede haber vencido antes de lo previsto. En vez de
+    // devolverle un error al cliente, tiramos el cache, pedimos uno nuevo y
+    // hacemos UN segundo intento.
+    if (res.status === 401 || res.status === 403) {
+      cachedCorreoToken = null;
+      try {
+        token = await getCorreoToken(env);
+        res = await pedirRates(token);
+      } catch (err) {
+        console.error("[rates] No se pudo renovar el token de MiCorreo:", err?.message || err);
+        return { error: true };
+      }
+    }
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

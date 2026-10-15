@@ -197,6 +197,91 @@ describe("MiCorreo caído — el checkout se entera con un mensaje claro, no con
 });
 
 /* -------------------------------------------------------------- */
+describe("MiCorreo intermitente — reintentos y caché del token", () => {
+  // Contexto: MiCorreo empezó a devolver 520 en el /token de forma
+  // intermitente. Como el Worker pedía un token nuevo en cada cotización
+  // y no reintentaba, al cliente le aparecía "no cotiza el envío" aunque
+  // el servicio de Correo estuviera funcionando. Estos tests fijan que el
+  // Worker insiste ante un 5xx transitorio y que reusa el token.
+
+  it("rates: si el /token devuelve 520 una vez, reintenta y cotiza igual", async () => {
+    montarFirestore({}, { adminUid: null });
+    const red = globalThis.fetch;
+    let intentosToken = 0;
+    globalThis.fetch = (url, init) => {
+      if (String(url).includes("/token")) {
+        intentosToken++;
+        if (intentosToken === 1) return Promise.resolve(new Response("", { status: 520 }));
+      }
+      return red(url, init);
+    };
+
+    const { status, json } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(200);
+    expect(json).toEqual({ domicilio: 2500, sucursal: 1500 });
+    expect(intentosToken).toBe(2);
+  });
+
+  it("rates: si el /token falla las tres veces (520), sigue siendo 502 y no 500", async () => {
+    montarFirestore({}, { adminUid: null });
+    let intentosToken = 0;
+    globalThis.fetch = (url) => {
+      if (String(url).includes("/token")) {
+        intentosToken++;
+        return Promise.resolve(new Response("", { status: 520 }));
+      }
+      throw new Error(`URL inesperada en el test: ${url}`);
+    };
+
+    const { status, json } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(502);
+    expect(json.error).toMatch(/No pudimos cotizar el envío/);
+    expect(intentosToken).toBe(3);
+  });
+
+  it("rates: si las credenciales están mal (401), NO reintenta", async () => {
+    // Un 4xx es nuestro (usuario/clave), no de ellos: insistir no arregla
+    // nada y solo castiga la API. Tiene que ser un único intento.
+    const { llamadas } = montarFirestore({}, { correoFalla: true, adminUid: null });
+    const { status } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(502);
+    expect(llamadas.filter((l) => l.url.includes("/token")).length).toBe(1);
+  });
+
+  it("rates: el token se pide una sola vez para varias cotizaciones", async () => {
+    const { llamadas } = montarFirestore({}, { adminUid: null });
+
+    const primera = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    const segunda = await pedir(worker, { action: "rates", postalCodeDestination: "1426" });
+
+    expect(primera.status).toBe(200);
+    expect(segunda.status).toBe(200);
+    expect(llamadas.filter((l) => l.url.includes("/token")).length).toBe(1);
+    expect(llamadas.filter((l) => l.url.includes("/rates")).length).toBe(2);
+  });
+
+  it("rates: si MiCorreo rechaza el token cacheado (401), lo renueva y cotiza", async () => {
+    const { llamadas } = montarFirestore({}, { adminUid: null });
+    const red = globalThis.fetch;
+    let llamadasRates = 0;
+    globalThis.fetch = (url, init) => {
+      if (String(url).includes("/rates")) {
+        llamadasRates++;
+        // La primera cotización con el token viejo: vencido.
+        if (llamadasRates === 1) return Promise.resolve(new Response("expired", { status: 401 }));
+      }
+      return red(url, init);
+    };
+
+    const { status, json } = await pedir(worker, { action: "rates", postalCodeDestination: "1425" });
+    expect(status).toBe(200);
+    expect(json).toEqual({ domicilio: 2500, sucursal: 1500 });
+    expect(llamadasRates).toBe(2);
+    expect(llamadas.filter((l) => l.url.includes("/token")).length).toBe(2);
+  });
+});
+
+/* -------------------------------------------------------------- */
 describe("CORS — la lista blanca de orígenes", () => {
   it.each(["https://skullt.web.app", "https://skullt.firebaseapp.com", "http://localhost:5173"])(
     "devuelve el Allow-Origin para %s",
