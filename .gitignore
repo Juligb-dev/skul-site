@@ -18,3 +18,9 @@ backups/
 
 # salida de cobertura de vitest
 coverage/
+
+# salida de las pruebas E2E (Playwright): reportes, capturas y trazas de fallos
+playwright-report/
+test-results/
+blob-report/
+.playwright/

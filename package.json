@@ -14,7 +14,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage && vitest run --config vitest.worker.config.js --coverage",
     "test:all": "npm run test:rules && npm run test && npm run build",
-    "test:rules": "firebase emulators:exec --only firestore \"node scripts/test-rules.mjs\""
+    "test:rules": "firebase emulators:exec --only firestore \"node scripts/test-rules.mjs\"",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:full": "npm run test:all && npm run test:e2e"
   },
   "dependencies": {
     "firebase": "^12.18.0",
@@ -23,7 +26,9 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@firebase/rules-unit-testing": "^5.0.2",
+    "@playwright/test": "^1.64.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
