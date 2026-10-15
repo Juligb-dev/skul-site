@@ -147,8 +147,40 @@ describe("Campos del formulario", () => {
     renderCheckout();
     const confirmar = screen.getByText("Confirmar pedido");
     expect(confirmar).toBeDisabled();
+    // El aviso tiene que nombrar SOLO lo que falta: acá, nombre y teléfono
+    // (el medio de pago ya viene puesto en las props del test).
     expect(
-      screen.getByText(/Completá tu nombre, teléfono y elegí un medio de pago para continuar\./)
+      screen.getByText("Para continuar falta tu nombre y tu teléfono.")
+    ).toBeInTheDocument();
+  });
+
+  it("si falta elegir el envío por Correo, el aviso lo dice (no habla de nombre ni teléfono)", () => {
+    // Nombre, teléfono y medio de pago completos: lo único que falta es la
+    // cotización de Correo. Antes el aviso hablaba de nombre/teléfono/medio
+    // de pago igual, y el cliente quedaba trabado sin saber por qué.
+    renderCheckout({
+      orderName: "Juana Pereyra",
+      orderPhone: "1555555555",
+      zone: "correo",
+      correoQuote: null,
+    });
+    expect(screen.getByText("Confirmar pedido")).toBeDisabled();
+    expect(
+      screen.getByText(/Para continuar falta el envío/)
+    ).toBeInTheDocument();
+  });
+
+  it("con envío a domicilio sin dirección, el aviso pide la dirección", () => {
+    renderCheckout({
+      orderName: "Juana Pereyra",
+      orderPhone: "1555555555",
+      zone: "correo",
+      correoQuote: { type: "domicilio", price: 8000 },
+      orderAddress: "",
+    });
+    expect(screen.getByText("Confirmar pedido")).toBeDisabled();
+    expect(
+      screen.getByText("Para continuar falta la dirección de entrega.")
     ).toBeInTheDocument();
   });
 

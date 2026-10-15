@@ -133,6 +133,24 @@ export default function Checkout({
     && addressValid 
     && !(isCorreo && payMethod === "efectivo");
 
+  // El botón deshabilitado explicaba mal el motivo: decía siempre "nombre,
+  // teléfono y medio de pago", aunque lo que faltara fuera el envío o la
+  // dirección (el cliente lo llenaba todo y el botón seguía gris sin decir
+  // por qué). Armo la lista real de lo que falta y la muestro tal cual.
+  const faltaConfirmar = [
+    !nameValid && "tu nombre",
+    !phoneValid && "tu teléfono",
+    !payMethod && "un medio de pago",
+    isCorreo && !shippingValid && "el envío (tocá «Calcular envío» y elegí domicilio o una sucursal)",
+    isCorreo && payMethod === "efectivo" && "otro medio de pago (el efectivo es solo para retiro en Los Toldos)",
+    !addressValid && "la dirección de entrega",
+  ].filter(Boolean);
+
+  // Une con comas y deja el último con "y": "a, b y c".
+  const ayudaConfirmar = faltaConfirmar.length > 1
+    ? `Para continuar falta ${faltaConfirmar.slice(0, -1).join(", ")} y ${faltaConfirmar[faltaConfirmar.length - 1]}.`
+    : `Para continuar falta ${faltaConfirmar[0]}.`;
+
   // Carrito vacío: no hay nada que cobrar, así que corto acá antes de
   // dibujar todo el formulario.
   if (!cart || cart.length === 0) {
@@ -460,7 +478,7 @@ export default function Checkout({
           >
             {confirming ? "Confirmando..." : "Confirmar pedido"}
           </button>
-          {!canConfirm && <p style={{ fontSize: 11.5, color: "var(--grey-3)", marginTop: 8 }}>Completá tu nombre, teléfono y elegí un medio de pago para continuar.</p>}
+          {!confirming && !canConfirm && <p style={{ fontSize: 11.5, color: "var(--grey-3)", marginTop: 8 }}>{ayudaConfirmar}</p>}
           {orderError && <p style={{ fontSize: 12.5, color: "crimson", marginTop: 10 }}>{orderError}</p>}
         </div>
       </div>
