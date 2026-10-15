@@ -116,3 +116,59 @@ menos a más completa:
    (panel → Cuentas de prueba). Requiere usar por un rato el **Access Token del
    usuario de prueba** en el Worker (`wrangler secret put MP_ACCESS_TOKEN`) y
    después **volver a poner el de producción**.
+
+## Tu parte (lo que sólo se puede hacer desde el panel)
+
+El código ya está. Esto es lo que queda a mano, en el panel de Mercado Pago y
+en Telegram, con la cuenta del dueño. Los nombres de los menús de MP cambian
+con los rediseños; si algo no coincide, buscá la sección equivalente.
+
+**1. Revocar el token viejo del bot de Telegram** (estaba expuesto en el
+código viejo, cualquiera lo tenía). En Telegram, chat con `@BotFather` →
+`/mybots` → tu bot → **API Token** → **Revoke current token**. El token nuevo
+va al Worker: `wrangler secret put TELEGRAM_BOT_TOKEN`. Detalle: ver
+`cloudflare-worker/README.md`, "Paso 0".
+
+**2. Terminar de verificar la cuenta de Mercado Pago.** Hasta que la cuenta no
+está verificada y con los medios de pago habilitados, MP no cobra. En
+**Tu negocio → Configuración** (o el banner de "Completá tu cuenta").
+
+**3. Sacar el Access Token de PRODUCCIÓN** (**Tus aplicaciones → tu
+aplicación → Credenciales de producción**; no el de prueba) y cargarlo en el
+Worker:
+
+```bash
+npx wrangler secret put MP_ACCESS_TOKEN
+```
+
+**4. Configurar el webhook** para que MP avise cada pago. En **Tus
+aplicaciones → tu aplicación → Webhooks / Notificaciones**:
+
+- URL: `https://cloudflare-worker.skullt.workers.dev/mp/webhook`
+- Evento: **Pagos** (payment).
+- Copiar la **clave secreta** que muestra el panel y cargarla:
+
+```bash
+npx wrangler secret put MP_WEBHOOK_SECRET
+```
+
+Después de cargar un secreto, el Worker se republica solo. Verificá que siga
+respondiendo (`curl` al `/mp/webhook` con un id inventado tiene que dar 502,
+"no se pudo leer el pago": eso prueba que la red de seguridad está viva).
+
+**5. Revisar el pago que quedó sin procesar.** El pago `184170547940` mandó sus
+avisos cuando el código viejo todavía los rechazaba. En **Actividad**: si
+figura **aprobado** y el pedido no quedó `paid`, usá **Reenviar
+notificación** (el handler actual ya lo procesa bien). Confirmá en Firestore
+que `/orders` quedó con `paymentStatus: "paid"`.
+
+**6. Probar de punta a punta con una compra chica de verdad.** Es la única
+prueba que vale: comprar con tarjeta, ver que te lleva a MP, que al volver la
+orden queda `paid` y que llega el aviso por Telegram. Si algo falla, el log del
+Worker (`npx wrangler tail`) muestra por qué.
+
+**7. Si querés cambiar reglas de negocio** (envío gratis desde, cuotas "Ahora
+12", comisiones): el umbral de envío gratis vive en el código
+(`ENVIO_GRATIS_DESDE`, en `src/data/config.js` y en
+`cloudflare-worker/worker.js`, los dos); las cuotas se configuran en el panel
+de MP (afectan la comisión, no el código).
