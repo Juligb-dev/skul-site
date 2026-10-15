@@ -22,14 +22,16 @@ Ahora el envío lo hace un **Cloudflare Worker**: un mini-servidor
 gratuito (sin tarjeta de crédito, sin límite de tiempo) que guarda el
 token de forma privada y es el único que le habla a Telegram.
 
-## Paso 0 — Revocar el token viejo (importante, hacelo ya)
+## Paso 0 — El token del bot (el viejo ya quedó revocado)
 
-El token `8909846536:AAE8Oey...` que estaba en el código quedó
-expuesto en internet. Andá a Telegram, abrí el chat con **@BotFather**,
-escribile `/mybots` → elegí tu bot → **API Token** → **Revoke current
-token**. Vas a recibir uno nuevo: ese es el que vamos a usar de acá en
-más (el viejo queda inútil, así que no importa que haya quedado
-filtrado).
+**Hecho (octubre 2026).** El token que estaba escrito en el código quedó
+expuesto en internet y ya fue revocado: en `@BotFather` (`/mybots` → tu bot →
+**API Token**) ahora figura otro distinto, el bot es el mismo y el valor viejo
+dejó de servir.
+
+Si algún día hay que rotarlo de nuevo, ese es el camino: **Revoke current
+token** en BotFather, y el token nuevo va en el **Paso 3** (secret de
+Cloudflare). Nunca vuelve al código.
 
 ## Paso 1 — Crear la cuenta de Cloudflare (gratis, sin tarjeta)
 

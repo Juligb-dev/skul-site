@@ -123,15 +123,27 @@ El código ya está. Esto es lo que queda a mano, en el panel de Mercado Pago y
 en Telegram, con la cuenta del dueño. Los nombres de los menús de MP cambian
 con los rediseños; si algo no coincide, buscá la sección equivalente.
 
-**1. Revocar el token viejo del bot de Telegram** (estaba expuesto en el
-código viejo, cualquiera lo tenía). En Telegram, chat con `@BotFather` →
-`/mybots` → tu bot → **API Token** → **Revoke current token**. El token nuevo
-va al Worker: `wrangler secret put TELEGRAM_BOT_TOKEN`. Detalle: ver
+**1. ✅ Token del bot de Telegram (hecho).** Estaba expuesto en el código
+viejo y ya quedó revocado desde `@BotFather`: el bot sigue siendo el mismo,
+pero el valor viejo dejó de servir (el token actual responde a `getMe`). Si
+querés descartar cualquier duda, volvé a cargarlo en el Worker:
+`wrangler secret put TELEGRAM_BOT_TOKEN`. Detalle: ver
 `cloudflare-worker/README.md`, "Paso 0".
 
-**2. Terminar de verificar la cuenta de Mercado Pago.** Hasta que la cuenta no
-está verificada y con los medios de pago habilitados, MP no cobra. En
-**Tu negocio → Configuración** (o el banner de "Completá tu cuenta").
+**2. Verificar la cuenta de Mercado Pago.** Hasta que la cuenta no está
+verificada y con los medios de pago habilitados, MP no cobra. Esto **no está
+en el panel de desarrolladores** (donde se sacan las credenciales): es el
+panel de la cuenta. Rutas:
+
+- **Web** (`mercadopago.com.ar`, una vez adentro): menú de tu perfil (foto o
+  inicial, arriba a la derecha) → **Mi cuenta / Tu perfil** → **Mis datos** →
+  **Verificar identidad**.
+- **App**: foto de perfil → **Verificar identidad** (o el aviso "Completá tu
+  cuenta" si aparece arriba de todo).
+
+Pide DNI (frente y dorso) más una selfie o video corto: automático en minutos,
+hasta 48 h si lo revisa una persona. Si no aparece la opción, cerrá sesión y
+volvé a entrar o actualizá la app.
 
 **3. Sacar el Access Token de PRODUCCIÓN** (**Tus aplicaciones → tu
 aplicación → Credenciales de producción**; no el de prueba) y cargarlo en el
