@@ -116,5 +116,6 @@ src/
 
 El código es de **Juligb-dev / SKUL**. Está publicado para que se pueda leer y
 tomar como referencia, pero **no tiene una licencia de reuso**: si te sirve la
-estructura para tu propio proyecto, escribime primero. (La marca SKUL, las fotos
-y los textos tampoco son de uso libre.)
+estructura para tu propio proyecto, escribime primero. (La marca SKUL, las fotos,
+los textos y los datos del catálogo tampoco son de uso libre.) Los términos
+completos están en [`LICENSE`](LICENSE).

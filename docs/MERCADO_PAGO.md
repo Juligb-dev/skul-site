@@ -187,11 +187,12 @@ Después de cargar un secreto, el Worker se republica solo. Verificá que siga
 respondiendo (`curl` al `/mp/webhook` con un id inventado tiene que dar 502,
 "no se pudo leer el pago": eso prueba que la red de seguridad está viva).
 
-**5. Revisar el pago que quedó sin procesar.** El pago `184170547940` mandó sus
-avisos cuando el código viejo todavía los rechazaba. En **Actividad**: si
-figura **aprobado** y el pedido no quedó `paid`, usá **Reenviar
-notificación** (el handler actual ya lo procesa bien). Confirmá en Firestore
-que `/orders` quedó con `paymentStatus: "paid"`.
+**5. ✅ Pago viejo `184170547940` (revisado: no hay nada que hacer).** En
+**Actividad** el único cobro real es la compra que cerró bien; ese id no figura
+como pago aprobado y tampoco pasó nunca por el log del Worker, así que era un
+intento que no se completó (no hay pedido que acreditar). Si algún día aparece
+un pago aprobado sin pedido pagado, el camino es **Reenviar notificación** (el
+handler actual ya lo procesa bien).
 
 **6. ✅ Probar de punta a punta con una compra real (hecho el 2026-10-15).** Se
 compró con tarjeta en producción: el sitio redirigió a MP, el pago se aprobó, el
@@ -219,6 +220,6 @@ de MP (afectan la comisión, no el código).
 
 ---
 
-**Estado:** con el 1, 2, 3, 4 y 6 hechos, el cobro con tarjeta está **en
-producción y probado con plata real**. De esta lista queda sólo el **5** (el
-pago viejo que MP no pudo entregar a tiempo) y el **7**, que es opcional.
+**Estado:** los puntos **1 a 6 están hechos**, así que el cobro con tarjeta está
+**en producción y probado con plata real**. De esta lista sólo queda el **7**,
+que es opcional (cambiar reglas de negocio como el umbral de envío gratis).
