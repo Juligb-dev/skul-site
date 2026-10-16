@@ -39,6 +39,23 @@ registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run tes
   credencial). Dependabot encontró 10 avisos y los 10 quedaron cerrados:
   `@grpc/grpc-js` (override, ver 1.4) y `sharp`/`undici` (parches de las
   herramientas de `wrangler`). `npm audit` → **0** en la raíz y en el Worker.
+- **Historial de git (auditado):** se revisó el árbol y **todo el historial**
+  (`git log --all -p`) buscando credenciales: sin claves privadas, sin tokens
+  de Mercado Pago ni de Telegram, sin API keys, y **nunca** existió un
+  `.env`/`.dev.vars`/`key.json` versionado. Los 3 archivos que alguna vez
+  estuvieron y se borraron tampoco tenían secretos. En GitHub quedó activado
+  el *secret scanning* con *push protection*.
+- **Datos del negocio en el repo (decisión, no descuido):** el repo público
+  contiene los contactos (WhatsApp, Instagram, mail) y los datos de
+  transferencia (alias, CVU, titular y CUIT) en `src/data/config.js`. **Se dejan
+  ahí a propósito**: el sitio los publica igual —la caja de transferencia que ve
+  el comprador en la pantalla de Gracias y los textos legales—, así que moverlos
+  al Worker no cambiaría la exposición real y sí le agregaría una llamada de red
+  a la pantalla que viene justo después del pago (si esa llamada falla, el
+  comprador no ve dónde transferir). Lo que nunca está en el repo son los
+  secretos: token de MP, token del bot de Telegram, credenciales de
+  MiCorreo/Firebase y el API secret de Cloudinary viven sólo como secretos del
+  Worker.
 
 ---
 
