@@ -1927,7 +1927,14 @@ async function handleAgencies(body, env, cors) {
    ============================================================ */
 const cacheGeoCP = new Map();
 
-async function handleGeoCP(body, cors) {
+// OJO CON LA FIRMA: el dispatcher de arriba llama a TODOS los handlers como
+// (body, env, cors). Si esta firma se deja como (body, cors), el `env` cae en
+// el parámetro `cors` y `headers: { ...cors }` termina devolviendo TODO el
+// entorno del Worker (token de Mercado Pago, clave de la cuenta de servicio,
+// etc.) como cabeceras HTTP. `env` no se usa acá, pero se recibe igual para
+// que la firma sea idéntica a la de los otros handlers y no se vuelvan a
+// cruzar los argumentos.
+async function handleGeoCP(body, env, cors) {
   const cp = String(body.postalCode || "").trim();
   // CP argentino: 4 dígitos ("1704") o con letras ("C1000AB"). Cualquier
   // otra cosa se corta acá para no consultar de más a Nominatim.

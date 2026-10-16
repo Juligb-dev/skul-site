@@ -146,6 +146,76 @@ describe("agencias y geocp — lo que el checkout necesita para armar la lista d
     expect(status).toBe(200);
     expect(json).toEqual({ lat: null });
   });
+
+  // Regresión del bug que expuso TODOS los secretos del Worker. El dispatcher
+  // llama a los handlers como (body, env, cors); si geocp se define como
+  // (body, cors), el `env` cae en el parámetro `cors` y `headers: { ...cors }`
+  // devuelve el entorno entero (token de MP, clave de la cuenta de servicio,
+  // etc.) como cabeceras de la respuesta. Acá se inyecta un env centinela y se
+  // exige que NUNCA aparezca como header, y que CORS sí venga.
+  it("geocp NO filtra el entorno como cabeceras (y sí devuelve CORS)", async () => {
+    const { status, headers } = await pedir(
+      worker,
+      { action: "geocp", postalCode: "1704" },
+      { Origin: "https://skullt.web.app", env: { SENTINELA_FUGA: "no-te-filtres" } }
+    );
+    expect(status).toBe(200);
+    expect(headers.get("Access-Control-Allow-Origin")).toBe("https://skullt.web.app");
+    // El centinela inyectado no puede volver como cabecera.
+    expect(headers.get("SENTINELA_FUGA")).toBeNull();
+    // Ni ninguna clave real del env (Headers.get ignora mayúsculas).
+    for (const clave of [
+      "CLOUDINARY_API_SECRET",
+      "CLOUDINARY_API_KEY",
+      "CORREO_PASSWORD",
+      "CORREO_USER",
+      "FIREBASE_API_KEY",
+      "TELEGRAM_BOT_TOKEN",
+    ]) {
+      expect(headers.get(clave)).toBeNull();
+    }
+  });
+
+  it("geocp con CP malformado tampoco filtra el entorno (400 con CORS)", async () => {
+    const { status, headers } = await pedir(
+      worker,
+      { action: "geocp", postalCode: "12" },
+      { Origin: "https://skullt.web.app", env: { SENTINELA_FUGA: "no-te-filtres" } }
+    );
+    expect(status).toBe(400);
+    expect(headers.get("SENTINELA_FUGA")).toBeNull();
+    expect(headers.get("Access-Control-Allow-Origin")).toBe("https://skullt.web.app");
+  });
+});
+
+/* -------------------------------------------------------------- */
+describe("Ningún endpoint devuelve el entorno del Worker como cabeceras", () => {
+  // El bug de geocp no fue "geocp": fue que la firma de un handler y la
+  // llamada del dispatcher se pisaron, y el `env` terminó en el parámetro
+  // `cors`. Esta es la red anti-repetición para TODOS los endpoints: se
+  // inyecta un env centinela y se exige que nunca vuelva como cabecera.
+  const casos = [
+    ["acción desconocida", { action: "no-existe" }],
+    ["notify sin orderId", { action: "notify" }],
+    ["subscribe sin subscriberId", { action: "subscribe" }],
+    ["createOrder vacío", { action: "createOrder" }],
+    ["signUpload sin token", { action: "signUpload" }],
+    ["rates sin CP", { action: "rates" }],
+    ["agencies sin provincia", { action: "agencies" }],
+    ["geocp con CP malformado", { action: "geocp", postalCode: "12" }],
+  ];
+
+  it.each(casos)("%s no filtra el env", async (_nombre, body) => {
+    const { headers } = await pedir(worker, body, {
+      Origin: "https://skullt.web.app",
+      env: { SENTINELA_FUGA: "no-te-filtres" },
+    });
+    expect(headers.get("SENTINELA_FUGA")).toBeNull();
+    expect(headers.get("CLOUDINARY_API_SECRET")).toBeNull();
+    expect(headers.get("CORREO_PASSWORD")).toBeNull();
+    expect(headers.get("FIREBASE_API_KEY")).toBeNull();
+    expect(headers.get("TELEGRAM_BOT_TOKEN")).toBeNull();
+  });
 });
 
 /* -------------------------------------------------------------- */
