@@ -1,11 +1,14 @@
 # Cómo conectar Mercado Pago (cobro de verdad)
 
-El cobro con tarjeta ya está conectado con **Checkout Pro**, pero queda
-**apagado hasta que exista `MP_ACCESS_TOKEN`**: sin token, el checkout registra
-el pedido y coordina el pago a mano por WhatsApp (el comportamiento viejo,
-simulado a propósito). Con token, el Worker crea la preferencia, el sitio
-redirige a MP y el webhook marca el pedido como pagado. Este doc explica el
-flujo y qué tocar si hay que ajustarlo.
+El cobro con tarjeta está **conectado con Checkout Pro y EN VIVO en producción
+desde el 2026-10-15**: la primera compra real cerró de punta a punta (pedido →
+MP → webhook → `paid` → aviso por Telegram → stock descontado).
+
+Sin `MP_ACCESS_TOKEN` el cobro queda apagado y el checkout registra el pedido
+para coordinar el pago a mano por WhatsApp (el comportamiento viejo, simulado a
+propósito). Con token, el Worker crea la preferencia, el sitio redirige a MP y
+el webhook marca el pedido como pagado. Este doc explica el flujo y qué tocar
+si hay que ajustarlo.
 
 > **Regla de oro (no negociable):** el navegador nunca decide cuánto se cobra.
 > El monto a cobrar tiene que salir del **total que recalcula el Cloudflare
@@ -31,14 +34,12 @@ No hace falta SDK en el navegador. Es lo más rápido de conectar y lo más segu
    - `notification_url` = webhook del Worker.
    - `back_urls` success / failure → las pantallas de gracias.
 2. **El Worker le devuelve el link de pago (`init_point`) al navegador.**
-3. **`src/StoreApp.jsx` — `confirmOrder()` (línea ~765):** hoy, para
-   `debito`/`credito` hace `nav("gracias-tarjeta")` (línea ~835). Ese es el
-   punto de cambio: en lugar de la pantalla de gracias, para tarjeta se hace
-   `window.location = creado.linkPago` (o se abre el widget). Los descuentos y
-   el carrito ya se limpiaron antes, así que está bien salir ahí.
-4. **`src/pages/Thanks.jsx` — `GraciasTarjeta` (línea 241):** pasa a ser la
-   pantalla de *retorno* del pago. Mostrar el `orderId`, el estado del pago
-   (aprobado/pendiente) y el box de seguimiento que ya existe.
+3. **`src/StoreApp.jsx` — `confirmOrder()`:** para `debito`/`credito` hace
+   `window.location.assign(paymentUrl)`, con la url que devolvió el Worker: el
+   comprador sale directo al checkout de MP. Los descuentos y el carrito ya se
+   limpiaron antes, así que está bien salir ahí.
+4. **`src/pages/Thanks.jsx`:** es la pantalla de *retorno* del pago: muestra el
+   `orderId`, el estado del pago y el box de seguimiento.
 5. **Webhook (`cloudflare-worker/worker.js` → `handleMercadoPagoWebhook`, ruta
    `/mp/webhook`):** ya está implementado. Al recibir la notificación:
    - verifica la firma `x-signature` (HMAC-SHA256 con `MP_WEBHOOK_SECRET`)
@@ -147,10 +148,11 @@ querés descartar cualquier duda, volvé a cargarlo en el Worker:
 `wrangler secret put TELEGRAM_BOT_TOKEN`. Detalle: ver
 `cloudflare-worker/README.md`, "Paso 0".
 
-**2. Verificar la cuenta de Mercado Pago.** Hasta que la cuenta no está
-verificada y con los medios de pago habilitados, MP no cobra. Esto **no está
-en el panel de desarrolladores** (donde se sacan las credenciales): es el
-panel de la cuenta. Rutas:
+**2. ✅ Verificar la cuenta de Mercado Pago (hecho).** La cuenta ya está
+verificada (recibe y transfiere a diario) y el checkout muestra los medios de
+pago. Hasta que la cuenta no está verificada, MP no cobra. OJO: **no está en el
+panel de desarrolladores** (donde se sacan las credenciales), es el panel de la
+cuenta. Rutas:
 
 - **Web** (`mercadopago.com.ar`, una vez adentro): menú de tu perfil (foto o
   inicial, arriba a la derecha) → **Mi cuenta / Tu perfil** → **Mis datos** →
@@ -162,9 +164,9 @@ Pide DNI (frente y dorso) más una selfie o video corto: automático en minutos,
 hasta 48 h si lo revisa una persona. Si no aparece la opción, cerrá sesión y
 volvé a entrar o actualizá la app.
 
-**3. Sacar el Access Token de PRODUCCIÓN** (**Tus aplicaciones → tu
-aplicación → Credenciales de producción**; no el de prueba) y cargarlo en el
-Worker:
+**3. ✅ Access Token de PRODUCCIÓN cargado (hecho).** Es el que está en el
+Worker y con el que se cobró de verdad. Si hay que recargarlo: **Tus
+aplicaciones → tu aplicación → Credenciales de producción** (no el de prueba) y
 
 ```bash
 npx wrangler secret put MP_ACCESS_TOKEN
@@ -191,10 +193,10 @@ figura **aprobado** y el pedido no quedó `paid`, usá **Reenviar
 notificación** (el handler actual ya lo procesa bien). Confirmá en Firestore
 que `/orders` quedó con `paymentStatus: "paid"`.
 
-**6. Probar de punta a punta con una compra chica de verdad.** Es la única
-prueba que vale: comprar con tarjeta, ver que te lleva a MP, que al volver la
-orden queda `paid` y que llega el aviso por Telegram. Si algo falla, el log del
-Worker (`npx wrangler tail`) muestra por qué.
+**6. ✅ Probar de punta a punta con una compra real (hecho el 2026-10-15).** Se
+compró con tarjeta en producción: el sitio redirigió a MP, el pago se aprobó, el
+pedido quedó `paid`, bajó el stock y llegó el aviso por Telegram. Si algo falla
+en el futuro, el log del Worker (`npx wrangler tail`) muestra por qué.
 
 ⚠️ **El botón "Pagar" de MP queda gris si el comprador es el vendedor.** No es
 un problema del sitio: MP lo trata como "auto-compra" (posible fraude) y
@@ -214,3 +216,9 @@ cobrar y realizar el pago"*. Dos formas de destrabarlo:
 (`ENVIO_GRATIS_DESDE`, en `src/data/config.js` y en
 `cloudflare-worker/worker.js`, los dos); las cuotas se configuran en el panel
 de MP (afectan la comisión, no el código).
+
+---
+
+**Estado:** con el 1, 2, 3, 4 y 6 hechos, el cobro con tarjeta está **en
+producción y probado con plata real**. De esta lista queda sólo el **5** (el
+pago viejo que MP no pudo entregar a tiempo) y el **7**, que es opcional.
