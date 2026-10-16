@@ -11,8 +11,9 @@
 Este informe es la **foto de la auditoría del 06/10/2026**: lo de abajo queda como
 registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run test:all`:
 
-- **Suite:** **430 tests web + 196 tests Worker + 42 checks de reglas**, build OK
-  (0 fallas). Más el E2E real en navegador (`npm run test:e2e`, Playwright + Axe).
+- **Suite:** **430 tests web + 196 tests Worker + 42 checks de reglas + 7 checks de
+  backup**, build OK (0 fallas). Más el E2E real en navegador (`npm run test:e2e`,
+  Playwright + Axe).
 - **Cobertura web:** **85.79% sentencias / 81.19% funciones / 76.86% ramas /
   89.52% líneas** (sigue muy por encima de los thresholds 60/60/50/60).
 - **Bundle:** se hizo *code‑splitting*. El visitante de la tienda abierta baja
@@ -56,6 +57,17 @@ registro de lo que se encontró ese día. Al día de hoy, corriendo `npm run tes
   secretos: token de MP, token del bot de Telegram, credenciales de
   MiCorreo/Firebase y el API secret de Cloudinary viven sólo como secretos del
   Worker.
+- **Backups (2026-10-15):** el plan gratis de Firebase **no tiene backups
+  automáticos** — los respaldos administrados de Google responden `403: This API
+  method requires billing to be enabled` (verificado contra el proyecto). Se
+  agregó `npm run backup` (`scripts/backup-firestore.mjs`), un respaldo local sin
+  dependencias nuevas: baja **todas** las colecciones a JSON (incluidos `/orders`
+  y `/arrepentimientos`, que son privados) y sabe restaurarlas con `--restore`.
+  Corre con una clave de servicio guardada **fuera del repo** y su carpeta de
+  salida (`backups/`) está en `.gitignore` porque contiene datos de clientes. Se
+  prueba con `npm run test:backup` (7 checks de ida y vuelta contra el emulador,
+  incluida la paginación de 300 documentos). El procedimiento completo, incluida
+  la automatización diaria vía `launchd`, está en `docs/BACKUPS.md`.
 
 ---
 
@@ -245,6 +257,15 @@ cómputo de cobertura por estar fuera del scope.
 visitante (sin auth), admin (uid fijo de `firestore.rules`) y Worker (service account).
 Cada `check()` declara si la operación debe poder o fallar y el runner lo cumple.
 
+### 3.4 Backup y restauración — 7 checks
+
+`scripts/test-backup.mjs`, también contra el emulador (nunca contra producción: sin
+`FIRESTORE_EMULATOR_HOST` el script se niega a correr). Siembra un documento con todos los
+tipos soportados (string, entero, decimal, booleano, `null`, lista, mapa anidado y
+timestamp), dos pedidos y **una colección de 320 documentos** para forzar la paginación de
+300; después respalda, borra todo, restaura y compara que la base haya quedado igual.
+Cubre además que la restauración **no toque** los documentos que no estaban en el backup.
+
 ---
 
 ## 4. Instrucciones de Ejecución
@@ -253,16 +274,20 @@ Cada `check()` declara si la operación debe poder o fallar y el runner lo cumpl
 npm install         # ya instalado en esta auditoría
 
 # Suite completa (orden de CI):
-npm run test:all    # = test:rules  +  test (web+worker)  +  build
+npm run test:all    # = test:rules + test:backup + test (web+worker) + build
 
 # Por partes:
 npm run test:rules  # reglas contra el emulador (levanta y apaga solo)
+npm run test:backup # backup/restauración contra el emulador (levanta y apaga solo)
 npm run test        # = npm run test:web && npm run test:worker
 npm run test:web    # sitio: vitest (jsdom)
 npm run test:worker # Worker: vitest --config vitest.worker.config.js (node)
 npm run test:watch  # modo escucha para desarrollar
 npm run test:coverage
 npm run build       # baseline de que el sitio compila a producción
+
+# Backup real de los datos (requiere la clave de servicio; ver docs/BACKUPS.md):
+npm run backup
 ```
 
 **Requisitos:** Node ≥ 18 con fetch nativo (probado en Node 24), y CLI de Firebase global

@@ -44,14 +44,27 @@ Acceso protegido por credenciales de Firebase Auth que permite gestionar la tien
 
 ## Pruebas
 
-Se prueba en cuatro niveles, por separado, porque ninguno puede confiar en el otro:
+Se prueba en cinco niveles, por separado, porque ninguno puede confiar en el otro:
 
 - **Sitio (React):** **430** pruebas de componentes, hooks y utilidades (`npm run test:web`).
 - **Worker:** **196** pruebas de precios, descuentos, stock, rate limit y webhook (`npm run test:worker`).
 - **Reglas de Firestore:** **42** checks contra el emulador, sin tocar producción (`npm run test:rules`).
+- **Backup y restauración:** **7** checks de ida y vuelta contra el emulador, incluida la paginación de 300 documentos (`npm run test:backup`).
 - **End-to-end en un navegador real:** Playwright + Axe sobre el build, las rutas, el carrito y la accesibilidad (`npm run test:e2e`).
 
-`npm run test:all` corre las tres primeras suites más el build; `npm run test:full` agrega el E2E. El detalle de qué se encontró y qué cubre cada suite está en `REPORTE-SEGURIDAD.md`.
+`npm run test:all` corre las cuatro primeras suites más el build; `npm run test:full` agrega el E2E. El detalle de qué se encontró y qué cubre cada suite está en `REPORTE-SEGURIDAD.md`.
+
+---
+
+## Backups de los datos
+
+El plan gratis de Firebase **no incluye backups automáticos** (los respaldos administrados de Google exigen el plan pago), así que el respaldo se corre desde acá:
+
+```bash
+npm run backup                 # baja TODO a backups/firestore-<fecha>/
+```
+
+Baja cada colección a un archivo JSON y sabe volver a subirlas (`--restore`). Necesita una **clave de servicio** de Firebase que se guarda **fuera del repo**: el paso a paso, la restauración y la forma de automatizarlo están en [`docs/BACKUPS.md`](docs/BACKUPS.md).
 
 ---
 
@@ -61,10 +74,11 @@ Además del sitio (que vive en `src/`):
 
 ```text
 cloudflare-worker/   # backend serverless: Mercado Pago, MiCorreo, Telegram y firma de Cloudinary
-docs/                # guías y checklist de Mercado Pago
+docs/                # guías: cobro con Mercado Pago y backups
 e2e/                 # pruebas end-to-end con Playwright + Axe
-scripts/             # seed de productos y runner de las pruebas de reglas
+scripts/             # seed de productos, runner de reglas y backup/restauración de Firestore
 public/              # estáticos (favicon, og-image, robots, sitemap, editoriales)
+backups/             # respaldos locales de Firestore (en .gitignore: NUNCA se sube)
 ```
 
 Y adentro de `src/`:
